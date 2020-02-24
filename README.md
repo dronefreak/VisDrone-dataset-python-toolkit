@@ -80,3 +80,7 @@ Original Image  |  Detection Results
 
 For replicating these results, please clone this repository and just execute:
 `python3 vis-drone-faster-rcnn.py`. This code is meant for static images and will save the output to the same directory. A sample trained model is provided in the `inference_graph` directory. 
+
+## References
+
+https://github.com/VisDrone/VisDrone-Dataset

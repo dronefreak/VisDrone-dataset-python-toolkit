@@ -84,7 +84,7 @@ for annotation in annotation_list:
 		label = label_dict.get(new_line[5])
 		req_str = object_string(label, bbox)
 		annotation_string_init = annotation_string_init + req_str
-		cv2.rectangle(img, new_coords_min, new_coords_max, color, thickness)
+		#cv2.rectangle(img, new_coords_min, new_coords_max, color, thickness)
 	cv2.imwrite(output_img_path, img)
 	annotation_string_final = annotation_string_init + '</annotation>'
 	f = open(xml_path, 'w')

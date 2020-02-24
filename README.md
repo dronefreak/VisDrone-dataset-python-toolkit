@@ -61,6 +61,6 @@ convertVis_to_xml.py
 
 The folders with `_new` extension have the files required for further manipulations. A sample visualization is shown below:
 
-Solarized dark             |  Solarized Ocean
-:-------------------------:|:-------------------------:
-![](https://...Dark.png)  |  ![](https://...Ocean.png)
+Originakl Image                   |  With PASCAL-style bounding boxes
+:--------------------------------:|:-------------------------:
+![](0000300_00601_d_0000141.jpg)  |  ![](gg.jpg)

@@ -59,4 +59,8 @@ VisDrone2019-DET-train
 convertVis_to_xml.py
 ```
 
-The folders with `_new` extension have the files required for further manipulations.
+The folders with `_new` extension have the files required for further manipulations. A sample visualization is shown below:
+
+Solarized dark             |  Solarized Ocean
+:-------------------------:|:-------------------------:
+![](https://...Dark.png)  |  ![](https://...Ocean.png)

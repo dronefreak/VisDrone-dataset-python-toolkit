@@ -5,8 +5,6 @@ Here, I have converted the existing annotations from the dataset to PASCAL-VOC f
 
 The original annotations seem to follow this particular style:
 
-Submission of the results will consist of TXT files with one line per predicted object.It looks as follows:
-
      <bbox_left>,<bbox_top>,<bbox_width>,<bbox_height>,<score>,<object_category>,<truncation>,<occlusion>
 
 
@@ -37,5 +35,28 @@ Submission of the results will consist of TXT files with one line per predicted 
                          The score in the GROUNDTRUTH file indicates the fraction of objects being occluded (i.e., no occlusion = 0 
                          (occlusion ratio 0%), partial occlusion = 1 (occlusion ratio 1% ~ 50%), and heavy occlusion = 2 
                          (occlusion ratio 50% ~ 100%)).
-   ------------------------------------------------------------------------------------------------------------------------------
-The detections in the ignored regions or labeled as "others" will be not considered in evaluation. The sample submission of the Faster-RCNN detector can be found in our website.
+   -----------------------------------------------------------------------------------------------------------------------------
+   
+So this annotation format is converted to PASCAL-VOC using `convertVis_to_xml.py`. The directory structure that needs to be followed is mentioned below:
+
+```
+VisDrone2019-DET-train
+---annotations
+---images
+
+convertVis_to_xml.py
+```
+So if you just execute this code from outside the `VisDrone2019-DET-train`, it will automatically find all the files and corresponding annotations and create two new folders like below:
+
+
+```
+VisDrone2019-DET-train
+---annotations
+---images
+---images_new
+---annotations_new
+
+convertVis_to_xml.py
+```
+
+The folders with `_new` extension have the files required for further manipulations.

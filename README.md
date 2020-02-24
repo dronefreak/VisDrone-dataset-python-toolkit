@@ -46,7 +46,7 @@ VisDrone2019-DET-train
 
 convertVis_to_xml.py
 ```
-So if you just execute this code from outside the `VisDrone2019-DET-train`, it will automatically find all the files and corresponding annotations and create two new folders like below:
+So if you just execute this code (`python3 convertVis_to_xml.py`) from outside the `VisDrone2019-DET-train`, it will automatically find all the files and corresponding annotations and create two new folders inside the `VisDrone2019-DET-train` directory like below:
 
 
 ```

@@ -3,6 +3,8 @@
 This repository provides a basic Pythonic toolkit for the VisDrone-Dataset (2018).
 Here, I have converted the existing annotations from the dataset to PASCAL-VOC format (regular .xml files).
 
+## Original Annotations
+
 The original annotations seem to follow this particular style:
 
      <bbox_left>,<bbox_top>,<bbox_width>,<bbox_height>,<score>,<object_category>,<truncation>,<occlusion>
@@ -36,7 +38,9 @@ The original annotations seem to follow this particular style:
                          (occlusion ratio 0%), partial occlusion = 1 (occlusion ratio 1% ~ 50%), and heavy occlusion = 2 
                          (occlusion ratio 50% ~ 100%)).
    -----------------------------------------------------------------------------------------------------------------------------
-   
+
+## Conversion to PASCAL-VOC
+
 So this annotation format is converted to PASCAL-VOC using `convertVis_to_xml.py`. The directory structure that needs to be followed is mentioned below:
 
 ```
@@ -61,6 +65,18 @@ convertVis_to_xml.py
 
 The folders with `_new` extension have the files required for further manipulations. A sample visualization is shown below:
 
-Originakl Image                   |  With PASCAL-style bounding boxes
+Original Image                    |  With PASCAL-style bounding boxes
 :--------------------------------:|:-------------------------:
 ![](0000300_00601_d_0000141.jpg)  |  ![](gg.jpg)
+
+## Tensorflow's Object Detection API
+
+The annotations seem to be decent enough. A further confirmation is provided by the following results after training a Faster-RCNN-InceptionV3 object detection algorithm on the customized dataset.
+
+Original Image  |  Detection Results
+:--------------:|:-------------------------:
+![](3.jpg)      |  ![](test3.png)
+![](2.jpg)      |  ![](test2.png)
+
+For replicating these results, please clone this repository and just execute:
+`python3 vis-drone-faster-rcnn.py`. This code is meant for static images and will save the output to the same directory. A sample trained model is provided in the `inference_graph` directory. 

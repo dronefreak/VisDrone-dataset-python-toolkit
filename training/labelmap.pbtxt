@@ -1,0 +1,48 @@
+item {
+  id: 1
+  name: 'Ignore'
+}
+item {
+  id: 2
+  name: 'Pedestrian'
+}
+item {
+  id: 3
+  name: 'People'
+}
+item {
+  id: 4
+  name: 'Bicycle'
+}
+item {
+  id: 5
+  name: 'Car'
+}
+item {
+  id: 6
+  name: 'Van'
+}
+item {
+  id: 7
+  name: 'Truck'
+}
+item {
+  id: 8
+  name: 'Tricycle'
+}
+item {
+  id: 9
+  name: 'Awning-tricycle'
+}
+item {
+  id: 10
+  name: 'Bus'
+}
+item {
+  id: 11
+  name: 'Motor'
+}
+item {
+  id: 12
+  name: 'Others'
+}

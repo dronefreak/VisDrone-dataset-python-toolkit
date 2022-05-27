@@ -72,7 +72,7 @@ for annotation in annotation_list:
 		<height>{}</height>
 		<depth>{}</depth>
 	</size>
-	<segmented>0</segmented>'''.format(img_file, img_path, img.shape[0], img.shape[1], img.shape[2])
+	<segmented>0</segmented>'''.format(img_file, img_path, img.shape[1], img.shape[0], img.shape[2])
 
 	file = open(annotation_path, 'r')
 	lines = file.readlines()

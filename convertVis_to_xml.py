@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""
-Convert VisDrone .txt annotations to Pascal VOC XML format.
+"""Convert VisDrone .txt annotations to Pascal VOC XML format.
+
 Supports multiple image formats, rich progress bar, and CLI args via Fire.
 """
 
-import cv2
 from pathlib import Path
+from typing import Dict, List, Optional
+
+import cv2
 import fire
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
-from typing import List, Dict, Optional
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 console = Console()
 
 
 class VisDroneToVOCConverter:
-    """
-    Converts VisDrone annotation format (.txt) to Pascal VOC XML format.
+    """Converts VisDrone annotation format (.txt) to Pascal VOC XML format.
+
     Supports multiple image types and optional bounding box drawing.
     """
 
@@ -33,7 +34,7 @@ class VisDroneToVOCConverter:
         "8": "Awning-tricycle",
         "9": "Bus",
         "10": "Motor",
-        "11": "Others"
+        "11": "Others",
     }
 
     # Supported image extensions
@@ -67,7 +68,9 @@ class VisDroneToVOCConverter:
         if not self.input_img_folder.is_dir():
             raise FileNotFoundError(f"Image folder not found: {self.input_img_folder}")
         if not self.input_ann_folder.is_dir():
-            raise FileNotFoundError(f"Annotation folder not found: {self.input_ann_folder}")
+            raise FileNotFoundError(
+                f"Annotation folder not found: {self.input_ann_folder}"
+            )
 
         self.output_img_folder.mkdir(parents=True, exist_ok=True)
         self.output_ann_folder.mkdir(parents=True, exist_ok=True)
@@ -87,10 +90,10 @@ class VisDroneToVOCConverter:
         width: int,
         height: int,
         depth: int,
-        objects: List[Dict]
+        objects: List[Dict],
     ) -> str:
         """Generate Pascal VOC-formatted XML string."""
-        header = f'''<annotation>
+        header = f"""<annotation>
 	<folder>{self.output_img_folder.name}</folder>
 	<filename>{filename}</filename>
 	<path>{img_path}</path>
@@ -102,11 +105,11 @@ class VisDroneToVOCConverter:
 		<height>{height}</height>
 		<depth>{depth}</depth>
 	</size>
-	<segmented>0</segmented>'''
+	<segmented>0</segmented>"""
 
         obj_strings = []
         for obj in objects:
-            obj_str = f'''
+            obj_str = f"""
 	<object>
 		<name>{obj["name"]}</name>
 		<pose>Unspecified</pose>
@@ -118,18 +121,18 @@ class VisDroneToVOCConverter:
 			<xmax>{obj["xmax"]}</xmax>
 			<ymax>{obj["ymax"]}</ymax>
 		</bndbox>
-	</object>'''
+	</object>"""
             obj_strings.append(obj_str)
 
         footer = "\n</annotation>"
-        return header + ''.join(obj_strings) + footer
+        return header + "".join(obj_strings) + footer
 
     def process_annotation_file(
         self,
         txt_path: Path,
         img_path: Path,
         xml_output_path: Path,
-        img_output_path: Path
+        img_output_path: Path,
     ):
         """Process a single annotation-image pair."""
         img = cv2.imread(str(img_path))
@@ -139,13 +142,15 @@ class VisDroneToVOCConverter:
         h, w, d = img.shape
 
         objects = []
-        with txt_path.open('r') as f:
+        with txt_path.open("r") as f:
             lines = [line.strip() for line in f if line.strip()]
 
         for i, line in enumerate(lines):
-            parts = line.split(',')
+            parts = line.split(",")
             if len(parts) < 6:
-                console.print(f"[yellow] Skipping invalid line {i+1} in {txt_path}[/yellow]")
+                console.print(
+                    f"[yellow] Skipping invalid line {i+1} in {txt_path}[/yellow]"
+                )
                 continue
 
             try:
@@ -160,21 +165,29 @@ class VisDroneToVOCConverter:
 
                 label_name = self.label_dict.get(label_id, "Unknown")
                 if label_name == "Unknown":
-                    console.print(f"[yellow] Unknown label ID '{label_id}' in {txt_path}[/yellow]")
+                    console.print(
+                        f"[yellow] Unknown label ID '{label_id}' in {txt_path}[/yellow]"
+                    )
 
-                objects.append({
-                    "name": label_name,
-                    "xmin": x_min,
-                    "ymin": y_min,
-                    "xmax": x_max,
-                    "ymax": y_max
-                })
+                objects.append(
+                    {
+                        "name": label_name,
+                        "xmin": x_min,
+                        "ymin": y_min,
+                        "xmax": x_max,
+                        "ymax": y_max,
+                    }
+                )
 
                 if self.draw_bboxes:
-                    cv2.rectangle(img, (x_min, y_min), (x_max, y_max), self.color, self.thickness)
+                    cv2.rectangle(
+                        img, (x_min, y_min), (x_max, y_max), self.color, self.thickness
+                    )
 
             except ValueError as e:
-                console.print(f"[red] Error parsing line {i+1} in {txt_path}: {e}[/red]")
+                console.print(
+                    f"[red] Error parsing line {i+1} in {txt_path}: {e}[/red]"
+                )
                 continue
 
         # Save image
@@ -187,9 +200,9 @@ class VisDroneToVOCConverter:
             width=w,
             height=h,
             depth=d,
-            objects=objects
+            objects=objects,
         )
-        xml_output_path.write_text(xml_content, encoding='utf-8')
+        xml_output_path.write_text(xml_content, encoding="utf-8")
 
     def convert(self):
         """Main conversion method with rich progress tracking."""
@@ -213,14 +226,18 @@ class VisDroneToVOCConverter:
                 try:
                     img_path = self._find_image_file(txt_file.stem)
                     if not img_path:
-                        console.print(f"[yellow] Image not found for {txt_file.stem}[/yellow]")
+                        console.print(
+                            f"[yellow] Image not found for {txt_file.stem}[/yellow]"
+                        )
                         progress.advance(task)
                         continue
 
                     xml_output_path = self.output_ann_folder / f"{txt_file.stem}.xml"
                     img_output_path = self.output_img_folder / img_path.name
 
-                    self.process_annotation_file(txt_file, img_path, xml_output_path, img_output_path)
+                    self.process_annotation_file(
+                        txt_file, img_path, xml_output_path, img_output_path
+                    )
                     success_count += 1
 
                 except Exception as e:
@@ -228,7 +245,10 @@ class VisDroneToVOCConverter:
                 finally:
                     progress.advance(task)
 
-        console.print(f"[bold green]✅ Done! Converted {success_count}/{len(txt_files)} file(s).[/bold green]")
+        console.print(
+            "[bold green]✅ Done!"
+            f" Converted {success_count}/{len(txt_files)} file(s).[/bold green]"
+        )
 
 
 def main(
@@ -238,15 +258,14 @@ def main(
     output_ann_folder: str = "VisDrone2019-DET-train/annotations_xml",
     draw_bboxes: bool = False,
 ):
-    """
-    Convert VisDrone annotations to Pascal VOC XML format.
+    """Convert VisDrone annotations to Pascal VOC XML format.
 
     Args:
-        input_img_folder (str): Path to input images directory.
-        input_ann_folder (str): Path to input annotations (.txt) directory.
-        output_img_folder (str): Path to save converted images.
-        output_ann_folder (str): Path to save generated XML files.
-        draw_bboxes (bool): Whether to draw bounding boxes on output images.
+            input_img_folder (str): Path to input images directory.
+            input_ann_folder (str): Path to input annotations (.txt) directory.
+            output_img_folder (str): Path to save converted images.
+            output_ann_folder (str): Path to save generated XML files.
+            draw_bboxes (bool): Whether to draw bounding boxes on output images.
     """
     converter = VisDroneToVOCConverter(
         input_img_folder=input_img_folder,

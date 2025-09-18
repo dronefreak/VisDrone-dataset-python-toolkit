@@ -1,5 +1,9 @@
 # VisDrone-dataset-python-toolkit
 
+### MAJOR REFACTOR UPDATE
+
+This repo has just been updated massively, the new code is now available for all, please note that the rcnn script is still under scrutiny.
+
 This repository provides a basic Pythonic toolkit for the VisDrone-Dataset (2018).
 Here, I have converted the existing annotations from the dataset to PASCAL-VOC format (regular .xml files). As of now, only object detection in images has been tackled, I'll be developing Pythonic support for other tasks very soon.
 

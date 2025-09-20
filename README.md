@@ -52,20 +52,18 @@ So this annotation format is converted to PASCAL-VOC using `convertVis_to_xml.py
 VisDrone2019-DET-train
 ---annotations
 ---images
-
-convertVis_to_xml.py
 ```
 
-So if you just execute this code (`python3 convertVis_to_xml.py`) from outside the `VisDrone2019-DET-train`, it will automatically find all the files and corresponding annotations and create two new folders inside the `VisDrone2019-DET-train` directory like below:
+First you would need to create the conda environment using the provided `environment.yml` followed by execution of the main script as shown below:
 
 ```
-VisDrone2019-DET-train
----annotations
----images
----images_xml
----annotations_xml
+conda env create -f environment.yml
+```
 
-convertVis_to_xml.py
+```
+conda activate convert_to_xml
+
+python convertVis_to_xml.py --input_img_folder "/home/user/Downloads/datasets/VisDrone2019-DET-train/images" --input_ann_folder "/home/user/Downloads/datasets/VisDrone2019-DET-train/annotations" --output_img_folder "/home/user/Downloads/datasets/VisDrone2019-DET-train/images_xml" --output_ann_folder "/home/user/Downloads/datasets/VisDrone2019-DET-train/annotations_xml"
 ```
 
 The folders with `_xml` extension have the files required for further manipulations. A sample visualization is shown below:
@@ -84,7 +82,9 @@ The annotations seem to be decent enough. A further confirmation is provided by 
 | ![](imgs/2.jpg) | ![](imgs/test2.png) |
 
 For replicating these results, please clone this repository and just execute:
-`python3 vis-drone-faster-rcnn.py`. This code is meant for static images and will save the output to the same directory. A sample trained model is provided in the `inference_graph` directory.
+`python3 vis-drone-faster-rcnn.py` from inside the conda environment. This code is meant for static images and will save the output to the same directory. A sample trained model is provided in the `inference_graph` directory.
+
+Also, make sure for the above code, you would need to provide the correct path for the test images.
 
 For now, the code `convertVis_to_xml.py` creates two new folders and puts the data in them, but this can be changed by altering the write folders in the code. This should be customized as per needs of the user. Thank you and happy coding !!!
 

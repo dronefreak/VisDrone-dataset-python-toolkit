@@ -1,0 +1,61 @@
+# Default training configuration for VisDrone object detection
+# Override with command-line arguments or create custom config files
+
+# Model configuration
+model:
+  name: "fasterrcnn_resnet50" # fasterrcnn_resnet50, fasterrcnn_mobilenet, fcos_resnet50, retinanet_resnet50
+  num_classes: 12 # VisDrone has 12 classes (including ignored-regions)
+  pretrained: true # Use COCO pretrained weights
+  trainable_backbone_layers: 3 # Number of trainable backbone layers (null = all)
+
+# Dataset configuration
+dataset:
+  train_img_dir: "data/VisDrone2019-DET-train/images"
+  train_ann_dir: "data/VisDrone2019-DET-train/annotations"
+  val_img_dir: "data/VisDrone2019-DET-val/images"
+  val_ann_dir: "data/VisDrone2019-DET-val/annotations"
+  filter_ignored: true # Filter boxes with score=0
+  filter_crowd: true # Filter crowd/ignored regions (category=0)
+  num_workers: 4
+
+# Training hyperparameters
+training:
+  epochs: 50
+  batch_size: 4
+  learning_rate: 0.005
+  momentum: 0.9
+  weight_decay: 0.0005
+
+  # Learning rate scheduler
+  lr_scheduler:
+    type: "step" # step, cosine, multistep
+    step_size: 15 # For StepLR
+    gamma: 0.1
+
+  # Optimization
+  optimizer: "sgd" # sgd, adam, adamw
+  gradient_clip: null # Gradient clipping value (null = disabled)
+  amp: false # Automatic mixed precision (recommended for modern GPUs)
+
+  # Early stopping (optional)
+  early_stopping:
+    enabled: false
+    patience: 10
+    min_delta: 0.001
+
+# Output configuration
+output:
+  output_dir: "outputs"
+  save_every: 5 # Save checkpoint every N epochs
+  log_interval: 10 # Log every N batches
+
+# Device configuration
+device: "cuda" # cuda, cpu, or specific device like cuda:0
+
+# Random seed for reproducibility
+seed: 42
+
+# Augmentation (future enhancement)
+augmentation:
+  enabled: false
+  # Add augmentation parameters here

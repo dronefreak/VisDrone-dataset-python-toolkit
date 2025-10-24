@@ -1,0 +1,39 @@
+# FCOS with ResNet50-FPN configuration
+# Anchor-free detector, good for dense object detection
+
+model:
+  name: "fcos_resnet50"
+  num_classes: 12
+  pretrained: true
+  trainable_backbone_layers: 3
+
+dataset:
+  train_img_dir: "data/VisDrone2019-DET-train/images"
+  train_ann_dir: "data/VisDrone2019-DET-train/annotations"
+  val_img_dir: "data/VisDrone2019-DET-val/images"
+  val_ann_dir: "data/VisDrone2019-DET-val/annotations"
+  filter_ignored: true
+  filter_crowd: true
+  num_workers: 4
+
+training:
+  epochs: 50
+  batch_size: 4
+  learning_rate: 0.01 # FCOS typically uses higher LR
+  momentum: 0.9
+  weight_decay: 0.0001 # Lower weight decay for FCOS
+
+  lr_scheduler:
+    type: "step"
+    step_size: 15
+    gamma: 0.1
+
+  optimizer: "sgd"
+  amp: true
+
+output:
+  output_dir: "outputs/fcos_resnet50"
+  save_every: 5
+
+device: "cuda"
+seed: 42

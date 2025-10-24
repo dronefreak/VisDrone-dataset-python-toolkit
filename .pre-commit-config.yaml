@@ -1,52 +1,149 @@
-# Note about ignore: pre-commit will ignore anything that is already ignored by Git.
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+
+default_language_version:
+  python: python3.8
+
 repos:
-  - repo: https://github.com/ambv/black
-    rev: 25.1.0
-    hooks:
-      - id: black
-        language_version: python
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.3.0
-    hooks:
-      - id: flake8
-        language_version: python
-        additional_dependencies: ["pep8-naming==0.12.1"]
+  # Pre-commit hooks for general file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v4.5.0
     hooks:
-      - id: check-added-large-files
-        args: ["--maxkb=1500"]
-      - id: check-docstring-first
-      - id: check-json
-      - id: check-merge-conflict
-      - id: check-symlinks
-      - id: check-toml
-      - id: check-xml
+      # File formatting
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
       - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+
+      # Python-specific
+      - id: check-ast
+      - id: check-builtin-literals
+      - id: check-docstring-first
+      - id: debug-statements
+      - id: name-tests-test
+        args: [--pytest-test-first]
+
+      # Merge conflicts and syntax
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+      # Security
       - id: detect-private-key
 
-  - repo: https://github.com/timothycrosley/isort
-    rev: 5.12.0
+  # Ruff - Fast Python linter (replaces flake8, isort partially, and more)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.15
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        types_or: [python, pyi]
+
+      # Run the formatter (like black)
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # Black - Python code formatter (run after ruff-format for consistency)
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+        args: [--line-length=100]
+
+  # isort - Sort Python imports
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
     hooks:
       - id: isort
-        language_version: python
-        additional_dependencies: ["isort[colors]==5.12.0"]
+        args: [--profile=black, --line-length=100]
 
-  - repo: https://github.com/PyCQA/docformatter
-    rev: v1.7.7
-    hooks:
-      - id: docformatter
-        args: [--in-place, --wrap-summaries=88, --wrap-descriptions=88]
-
+  # Prettier - Format YAML, JSON, Markdown, etc.
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
+    rev: v3.1.0
     hooks:
       - id: prettier
-        types_or: [markdown, yaml, json, xml, toml]
+        types_or: [yaml, markdown, json]
+        exclude: ^(CHANGELOG\.md|LICENSE)$
 
-  - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v16.0.6
+  # Pyupgrade - Upgrade Python syntax for newer versions
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
     hooks:
-      - id: clang-format
-        files: '\.(cpp|cxx|cc|hpp|hxx|hh)$'
-        exclude: "third_party|generated"
+      - id: pyupgrade
+        args: [--py38-plus]
+
+  # Check docstrings
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args:
+          - --convention=google
+          - --add-ignore=D100,D101,D102,D103,D104,D105,D107
+        exclude: ^(tests/|setup\.py|docs/)
+
+  # MyPy - Static type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-PyYAML
+          - types-setuptools
+        args: [--ignore-missing-imports, --check-untyped-defs]
+        exclude: ^(tests/|setup\.py|docs/)
+
+  # Bandit - Security linter
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.6
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml]
+        additional_dependencies: ["bandit[toml]"]
+        exclude: ^tests/
+
+  # Check requirements.txt files are sorted
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: requirements-txt-fixer
+        files: requirements.*\.txt$
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.38.0
+    hooks:
+      - id: markdownlint-fix
+        args: [--disable, MD013, MD033, MD041, --]
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args:
+          [
+            -d,
+            "{extends: default, rules: {line-length: {max: 120}, document-start: disable}}",
+          ]
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.9.0.6
+    hooks:
+      - id: shellcheck
+
+  # Conventional commits
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+# Configuration for specific hooks can also be in pyproject.toml

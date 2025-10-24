@@ -1,0 +1,31 @@
+# Development dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Include core requirements
+-r requirements.txt
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+ipykernel>=6.25.0
+isort>=5.12.0
+
+# Jupyter notebooks
+jupyter>=1.0.0
+mypy>=1.4.0
+
+# Pre-commit hooks
+pre-commit>=3.3.0
+
+# COCO evaluation (optional but recommended)
+pycocotools>=2.0.6
+pylint>=2.17.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-xdist>=3.3.0  # Parallel testing
+
+# Documentation
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0

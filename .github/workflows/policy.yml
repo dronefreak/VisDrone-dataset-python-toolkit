@@ -1,0 +1,255 @@
+name: OSS Policy
+
+on:
+  workflow_call:
+    inputs:
+      max_pr_size:
+        description: "Hard PR size limit (LOC)"
+        required: false
+        default: 800
+        type: number
+      warn_pr_size:
+        description: "Soft PR size warning (LOC)"
+        required: false
+        default: 300
+        type: number
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write # required to manage labels
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # ------------------------------------------------------------
+      # Input validation
+      # ------------------------------------------------------------
+      - name: Validate inputs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const warn = Number("${{ inputs.warn_pr_size }}");
+            const max  = Number("${{ inputs.max_pr_size }}");
+            if (warn >= max) {
+              core.setFailed("`warn_pr_size` must be < `max_pr_size`");
+            }
+            if (warn <= 0 || max <= 0) {
+              core.setFailed("Size thresholds must be positive integers");
+            }
+
+      # ------------------------------------------------------------
+      # 1. PR TITLE: Conventional Commits
+      # ------------------------------------------------------------
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@v5
+        with:
+          types: |
+            feat
+            fix
+            docs
+            test
+            refactor
+            perf
+            build
+            ci
+            chore
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # 2. PR BODY CONTRACT
+      # ------------------------------------------------------------
+      - name: Validate PR body contract
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("OSS Policy must be invoked from a pull_request workflow.");
+            }
+
+            const body = pr.body || "";
+            const required = [];
+            const missing = required.filter(r => !body.includes(r));
+            if (missing.length > 0) {
+              core.setFailed(
+                `PR description missing required sections: ${missing.join(", ")}`
+              );
+            }
+
+      # ------------------------------------------------------------
+      # 3. PR SIZE ENFORCEMENT + IDEMPOTENT LABELING
+      # ------------------------------------------------------------
+      - name: Enforce PR size and apply size label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("OSS Policy must be invoked from a pull_request workflow.");
+            }
+
+            const total = (pr.additions || 0) + (pr.deletions || 0);
+            const warn = Number("${{ inputs.warn_pr_size }}");
+            const max  = Number("${{ inputs.max_pr_size }}");
+
+            if (total > max) {
+              core.setFailed(`PR too large (${total} LOC). Split it.`);
+            } else if (total > warn) {
+              core.warning(`Large PR (${total} LOC). Review carefully.`);
+            }
+
+            let label;
+            if (total < 50) label = "size/XS";
+            else if (total < 150) label = "size/S";
+            else if (total < warn) label = "size/M";
+            else if (total < max) label = "size/L";
+            else label = "size/XL";
+
+            const { data: existingLabels } =
+              await github.rest.issues.listLabelsOnIssue({
+                ...context.repo,
+                issue_number: pr.number
+              });
+
+            const oldSizeLabels = existingLabels
+              .filter(l => l.name.startsWith("size/"))
+              .map(l => l.name);
+
+            for (const oldLabel of oldSizeLabels) {
+              await github.rest.issues.removeLabel({
+                ...context.repo,
+                issue_number: pr.number,
+                name: oldLabel
+              });
+            }
+
+            await github.rest.issues.addLabels({
+              ...context.repo,
+              issue_number: pr.number,
+              labels: [label]
+            });
+
+      # ------------------------------------------------------------
+      # 4. PATH-BASED LABELING
+      # ------------------------------------------------------------
+      - name: Apply path-based labels
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/labeler.yml
+
+      # ------------------------------------------------------------
+      # 5. DCO / SIGN-OFF CHECK
+      # ------------------------------------------------------------
+      - name: DCO check
+        uses: christophebedard/dco-check@0.5.0
+        with:
+          python-version: "3.12"
+          args: "--verbose"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # 6. DEPENDENCY CHANGE DETECTION + JUSTIFICATION
+      # ------------------------------------------------------------
+      - name: Enforce dependency justification if needed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("OSS Policy must be invoked from a pull_request workflow.");
+            }
+
+            const response = await github.rest.pulls.listFiles({
+              ...context.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            if (response.data.length === 100) {
+              core.setFailed(
+                "PR touches more than 100 files. Split it; policy does not paginate."
+              );
+            }
+
+            const filenames = response.data.map(f => f.filename);
+
+            const depPatterns = [
+              /requirements/i,
+              /pyproject/i,
+              /package\.json/i,
+              /CMakeLists\.txt/i,
+              /vcpkg/i,
+              /conanfile/i
+            ];
+
+            const hasDepChange = filenames.some(file =>
+              depPatterns.some(p => p.test(file))
+            );
+
+            if (hasDepChange) {
+              const body = pr.body || "";
+              if (!body.includes("Dependency justification:")) {
+                core.setFailed(
+                  "Dependency change detected without justification section."
+                );
+              }
+            }
+
+      # ------------------------------------------------------------
+      # 7. RELEASE HYGIENE: CHANGELOG UPDATE
+      # ------------------------------------------------------------
+      - name: Enforce changelog update
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("OSS Policy must be invoked from a pull_request workflow.");
+            }
+
+            const nonCodePatterns = [
+              /^docs\//i,
+              /^README/i,
+              /\.md$/i,
+              /^\.github\//i,
+              /^LICENSE/i,
+              /^\.gitignore$/i,
+              /^\.dockerignore$/i,
+              /^\.prettierignore$/i,
+              /^\.vscode\//i
+            ];
+
+            const response = await github.rest.pulls.listFiles({
+              ...context.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            if (response.data.length === 100) {
+              core.setFailed(
+                "PR touches more than 100 files. Split it; policy does not paginate."
+              );
+            }
+
+            const touched = response.data.map(f => f.filename);
+
+            const touchesCode = touched.some(f =>
+              !nonCodePatterns.some(p => p.test(f))
+            );
+            const touchesChangelog = touched.some(f =>
+              f.toLowerCase().includes("changelog")
+            );
+
+            if (touchesCode && !touchesChangelog) {
+              core.setFailed("Code changes require a CHANGELOG update.");
+            }

@@ -1,0 +1,13 @@
+name: PR Policy
+
+on:
+  pull_request:
+    branches: [master, dev, feat/*, fix/*, docs/*, release/*]
+
+jobs:
+  policy:
+    uses: ./.github/workflows/policy.yml
+    with:
+      max_pr_size: 800
+      warn_pr_size: 300
+    secrets: inherit

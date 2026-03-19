@@ -1,0 +1,68 @@
+# RF-DETR Base configuration for VisDrone
+#
+# RF-DETR (Rotary-position-enhanced Feature-augmented Detection TRansformer)
+# achieves real-time detection with transformer accuracy.
+#
+# Key differences from anchor-based models:
+#   - No anchors: set-based bipartite matching (Hungarian algorithm)
+#   - AdamW optimiser with separate LRs for encoder and decoder
+#   - Larger effective batch (batch_size × grad_accum_steps) is important
+#   - Cosine LR schedule is applied internally by rfdetr
+#
+# Training:
+#   python scripts/train_rfdetr.py --model rfdetr_base \
+#       --train-img-dir data/VisDrone2019-DET-train/images \
+#       --train-ann-dir data/VisDrone2019-DET-train/annotations \
+#       --val-img-dir   data/VisDrone2019-DET-val/images \
+#       --val-ann-dir   data/VisDrone2019-DET-val/annotations
+#
+# Inference (after training):
+#   python scripts/inference.py --model rfdetr_base \
+#       --checkpoint outputs/rfdetr_base/checkpoint.pth \
+#       --input <image_or_dir>
+
+model:
+  name: "rfdetr_base"
+  # VisDrone has 11 foreground classes (excluding ignored-regions category 0)
+  num_classes: 11
+  pretrained: true           # Load RF-DETR COCO pretrained weights
+
+dataset:
+  train_img_dir: "data/VisDrone2019-DET-train/images"
+  train_ann_dir: "data/VisDrone2019-DET-train/annotations"
+  val_img_dir: "data/VisDrone2019-DET-val/images"
+  val_ann_dir: "data/VisDrone2019-DET-val/annotations"
+  filter_ignored: true       # Filter score=0 (ignored) annotations
+  filter_crowd: true         # Filter category=0 (ignored-regions)
+  num_workers: 4
+
+training:
+  epochs: 50
+  batch_size: 4              # Per-GPU batch size
+  grad_accum_steps: 4        # Effective batch = 4 × 4 = 16 (DETR needs large effective batch)
+  image_size: 560            # RF-DETR base default input resolution
+
+  # AdamW optimiser (set internally by rfdetr; these are passed as arguments)
+  lr: 1.0e-4                 # Decoder / classification head learning rate
+  lr_encoder: 1.5e-4         # Encoder / backbone learning rate
+  weight_decay: 1.0e-4
+
+  use_ema: true              # Exponential Moving Average improves final accuracy
+  checkpoint_interval: 10    # Save checkpoint every N epochs
+
+output:
+  output_dir: "outputs/rfdetr_base"
+
+device: "cuda"
+
+# ── Notes ──────────────────────────────────────────────────────────────────
+# GPU memory requirements (approximate):
+#   batch_size=4: ~12 GB VRAM
+#   batch_size=2: ~8 GB VRAM  (increase grad_accum_steps to 8 to compensate)
+#
+# Performance expectations on VisDrone (rough estimates):
+#   RF-DETR Base  ~ 60–65% F1  @ 25+ FPS (RTX 3090)
+#   RF-DETR Large ~ 65–70% F1  @ 15+ FPS (RTX 3090)
+#
+# For small-object performance, RF-DETR's multi-scale deformable attention
+# provides better coverage than traditional anchor-based approaches.

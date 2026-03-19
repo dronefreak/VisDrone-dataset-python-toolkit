@@ -15,3 +15,9 @@ torchvision>=0.15.0
 
 # Utilities
 tqdm>=4.65.0
+
+# RF-DETR support (optional — required for rfdetr_base / rfdetr_large models)
+# Installs the Roboflow RF-DETR package and its supervision dependency.
+# Uncomment to install:
+# rfdetr>=0.3.0
+# supervision>=0.22.0

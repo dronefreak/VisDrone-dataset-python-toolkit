@@ -52,8 +52,16 @@ def parse_args():
             "fasterrcnn_mobilenet",
             "fcos_resnet50",
             "retinanet_resnet50",
+            "rfdetr_base",
+            "rfdetr_large",
         ],
-        help="Model architecture",
+        help=(
+            "Model architecture. "
+            "NOTE: RF-DETR models ('rfdetr_base', 'rfdetr_large') use a DETR-style "
+            "training paradigm and should be trained with scripts/train_rfdetr.py "
+            "for best results. This script can be used for inference/evaluation only "
+            "with those models."
+        ),
     )
     parser.add_argument("--num-classes", type=int, default=12, help="Number of classes")
     parser.add_argument(
@@ -446,6 +454,19 @@ def main():
             collate_fn=collate_fn,
             pin_memory=device.type == "cuda",
         )
+
+    # Warn if an RF-DETR model is selected (different training paradigm)
+    if args.model in ("rfdetr_base", "rfdetr_large"):
+        console.print(
+            "\n[bold yellow]⚠  RF-DETR Training Notice[/bold yellow]\n"
+            "[yellow]RF-DETR uses a DETR-style set-based loss (Hungarian matching) that is\n"
+            "incompatible with the anchor-based training loop in this script.\n"
+            "For proper RF-DETR training, please use:[/yellow]\n"
+            f"  [cyan]python scripts/train_rfdetr.py --model {args.model} ...[/cyan]\n"
+        )
+        import sys
+
+        sys.exit(1)
 
     # Create model
     console.print(f"\n[yellow]Creating model: {args.model}[/yellow]")

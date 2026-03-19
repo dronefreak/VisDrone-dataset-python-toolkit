@@ -1,0 +1,58 @@
+# RF-DETR Large configuration for VisDrone
+#
+# RF-DETR Large uses a larger backbone and more decoder layers for higher accuracy
+# at the cost of increased GPU memory and slightly lower throughput compared to
+# RF-DETR Base.
+#
+# Training:
+#   python scripts/train_rfdetr.py --model rfdetr_large \
+#       --train-img-dir data/VisDrone2019-DET-train/images \
+#       --train-ann-dir data/VisDrone2019-DET-train/annotations \
+#       --val-img-dir   data/VisDrone2019-DET-val/images \
+#       --val-ann-dir   data/VisDrone2019-DET-val/annotations
+#
+# Inference (after training):
+#   python scripts/inference.py --model rfdetr_large \
+#       --checkpoint outputs/rfdetr_large/checkpoint.pth \
+#       --input <image_or_dir>
+
+model:
+  name: "rfdetr_large"
+  # VisDrone has 11 foreground classes (excluding ignored-regions category 0)
+  num_classes: 11
+  pretrained: true           # Load RF-DETR COCO pretrained weights
+
+dataset:
+  train_img_dir: "data/VisDrone2019-DET-train/images"
+  train_ann_dir: "data/VisDrone2019-DET-train/annotations"
+  val_img_dir: "data/VisDrone2019-DET-val/images"
+  val_ann_dir: "data/VisDrone2019-DET-val/annotations"
+  filter_ignored: true
+  filter_crowd: true
+  num_workers: 4
+
+training:
+  epochs: 50
+  batch_size: 2              # Reduce batch_size due to larger model memory footprint
+  grad_accum_steps: 8        # Effective batch = 2 × 8 = 16
+  image_size: 560            # RF-DETR large default input resolution
+
+  # AdamW optimiser
+  lr: 1.0e-4
+  lr_encoder: 1.5e-4
+  weight_decay: 1.0e-4
+
+  use_ema: true
+  checkpoint_interval: 10
+
+output:
+  output_dir: "outputs/rfdetr_large"
+
+device: "cuda"
+
+# ── Notes ──────────────────────────────────────────────────────────────────
+# GPU memory requirements (approximate):
+#   batch_size=2: ~14 GB VRAM
+#   batch_size=1: ~10 GB VRAM  (increase grad_accum_steps to 16)
+#
+# For limited VRAM, consider rfdetr_base with the same effective batch size.

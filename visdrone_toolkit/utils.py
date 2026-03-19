@@ -56,15 +56,24 @@ def get_model(
 
     Args:
         model_name: One of ['fasterrcnn_resnet50', 'fasterrcnn_mobilenet',
-                    'fcos_resnet50', 'retinanet_resnet50']
+                    'fcos_resnet50', 'retinanet_resnet50',
+                    'rfdetr_base', 'rfdetr_large']
         num_classes: Number of classes (default: 12 for VisDrone)
-        pretrained: Load pretrained weights (COCO)
+        pretrained: Load pretrained weights (COCO for torchvision models;
+                    RF-DETR pretrained weights for rfdetr models)
         pretrained_backbone: Use pretrained backbone
         trainable_backbone_layers: Number of trainable backbone layers
+                    (ignored for RF-DETR models)
         **kwargs: Additional model-specific arguments
 
     Returns:
-        Detection model ready for training/inference
+        Detection model ready for training/inference.
+
+    Note:
+        RF-DETR models ('rfdetr_base', 'rfdetr_large') require the rfdetr
+        package (``pip install rfdetr``). The returned wrapper supports
+        torchvision-compatible *inference* only. For RF-DETR training use
+        ``scripts/train_rfdetr.py``.
     """
     model_name = model_name.lower()
 
@@ -121,11 +130,17 @@ def get_model(
             in_channels, num_anchors, num_classes
         )
 
+    elif model_name in ("rfdetr_base", "rfdetr_large"):
+        from visdrone_toolkit.rfdetr_wrapper import get_rfdetr_model
+
+        # trainable_backbone_layers is not applicable for RF-DETR
+        return get_rfdetr_model(model_name, num_classes, pretrained, **kwargs)
+
     else:
         raise ValueError(
             f"Unknown model: {model_name}. "
             f"Choose from: fasterrcnn_resnet50, fasterrcnn_mobilenet, "
-            f"fcos_resnet50, retinanet_resnet50"
+            f"fcos_resnet50, retinanet_resnet50, rfdetr_base, rfdetr_large"
         )
 
     return model

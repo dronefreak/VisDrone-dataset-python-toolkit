@@ -39,6 +39,8 @@ def parse_args():
             "fasterrcnn_mobilenet",
             "fcos_resnet50",
             "retinanet_resnet50",
+            "rfdetr_base",
+            "rfdetr_large",
         ],
         help="Model architecture",
     )

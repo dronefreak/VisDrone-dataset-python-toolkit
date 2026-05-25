@@ -48,6 +48,7 @@ dependencies = [
     "matplotlib>=3.5.0",
     "opencv-python>=4.7.0",
     "tqdm>=4.65.0",
+    "albumentations>=2.0.1",
 ]
 
 [project.optional-dependencies]

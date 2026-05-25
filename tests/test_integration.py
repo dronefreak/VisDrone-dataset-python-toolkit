@@ -5,7 +5,6 @@ Tests full training pipeline, empty annotation handling, metrics computation,
 and soft-NMS functionality to ensure no regressions in core workflows.
 """
 
-
 import pytest
 import torch
 from PIL import Image

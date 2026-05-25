@@ -135,9 +135,11 @@ class TestVisDroneDataset:
 
         image, target = dataset[0]
 
-        # Should return empty boxes and labels
-        assert len(target["boxes"]) == 1  # Dummy box
-        assert len(target["labels"]) == 1  # Dummy label
+        # Should return empty boxes and labels (no dummy box creation)
+        assert len(target["boxes"]) == 0
+        assert len(target["labels"]) == 0
+        assert target["boxes"].shape == (0, 4)
+        assert target["labels"].shape == (0,)
 
     def test_get_image_path(self, mock_visdrone_dataset):
         """Test get_image_path method."""

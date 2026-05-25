@@ -230,12 +230,14 @@ class TestMetricsComputation:
 
     def test_compute_metrics_docstring_clarity(self):
         """Test that compute_metrics has clear documentation about limitations."""
-        docstring = compute_metrics.__doc__
+        # Get docstring from function
+        doc = getattr(compute_metrics, "__doc__", None)
 
-        assert docstring is not None, "Should have docstring"
-        assert "training monitoring only" in docstring.lower(), "Should warn about limitations"
-        assert "official" in docstring.lower(), "Should mention official evaluation"
-        assert "pycocotools" in docstring.lower(), "Should reference alternative methods"
+        assert doc is not None, "Should have docstring"
+        doc_lower = doc.lower()
+        assert "training monitoring" in doc_lower, "Should warn about limitations"
+        assert "official" in doc_lower, "Should mention official evaluation"
+        assert "pycocotools" in doc_lower, "Should reference alternative methods"
 
 
 class TestMinimalTrainingPipeline:

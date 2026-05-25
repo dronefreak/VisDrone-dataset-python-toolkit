@@ -169,6 +169,6 @@ def configure_model_for_better_recall(model, model_name="fasterrcnn_resnet50"):
 
             print("✓ Configured RetinaNet for better recall")
     else:
-        print(f"⚠️  Model '{model_name}' not recognized for recall configuration.")
+        print(f"Model '{model_name}' not recognized for recall configuration.")
 
     return model

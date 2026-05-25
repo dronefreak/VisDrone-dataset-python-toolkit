@@ -148,7 +148,7 @@ def compute_metrics(
     """
     Compute basic detection metrics for training monitoring.
 
-    ⚠️ IMPORTANT: This implementation is for training/validation monitoring only.
+    IMPORTANT: This implementation is for training/validation monitoring only.
     It uses a simple TP/FP/FN matching strategy and does NOT match the official
     VisDrone evaluation methodology (which requires complex mAP computation).
 
@@ -191,9 +191,17 @@ def compute_metrics(
 
     for pred, target in zip(predictions, targets):
         pred_boxes = pred["boxes"].cpu()
-        pred_labels = pred["labels"].cpu()
+        pred_labels = (
+            pred["labels"].cpu()
+            if "labels" in pred
+            else torch.zeros(len(pred_boxes), dtype=torch.int64)
+        )
         target_boxes = target["boxes"].cpu()
-        target_labels = target["labels"].cpu()
+        target_labels = (
+            target["labels"].cpu()
+            if "labels" in target
+            else torch.zeros(len(target_boxes), dtype=torch.int64)
+        )
 
         if len(pred_boxes) == 0 and len(target_boxes) == 0:
             continue

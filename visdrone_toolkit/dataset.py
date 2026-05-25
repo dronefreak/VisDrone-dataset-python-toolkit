@@ -117,12 +117,6 @@ class VisDroneDataset(Dataset):
         ann_path = self.annotation_dir / (img_path.stem + ".txt")
         boxes_np, labels_np = self._parse_annotation(ann_path)
 
-        # Handle empty annotations
-        if len(boxes_np) == 0:
-            # Create dummy box to avoid training issues
-            boxes_np = np.array([[0.0, 0.0, 1.0, 1.0]], dtype=np.float32)
-            labels_np = np.array([1], dtype=np.int64)
-
         # Apply augmentations if provided (albumentations)
         if self.transforms is not None:
             # Convert to numpy for albumentations
@@ -133,11 +127,6 @@ class VisDroneDataset(Dataset):
             image_np = transformed["image"]
             boxes_np = np.array(transformed["bboxes"], dtype=np.float32)
             labels_np = np.array(transformed["labels"], dtype=np.int64)
-
-            # Handle case where augmentation removed all boxes
-            if len(boxes_np) == 0:
-                boxes_np = np.array([[0.0, 0.0, 1.0, 1.0]], dtype=np.float32)
-                labels_np = np.array([1], dtype=np.int64)
 
             # Convert to PIL for resize
             image = Image.fromarray(image_np)

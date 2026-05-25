@@ -146,15 +146,44 @@ def compute_metrics(
     iou_threshold: float = 0.5,
 ) -> dict[str, float]:
     """
-    Compute basic detection metrics (mAP would require pycocotools).
+    Compute basic detection metrics for training monitoring.
+
+    ⚠️ IMPORTANT: This implementation is for training/validation monitoring only.
+    It uses a simple TP/FP/FN matching strategy and does NOT match the official
+    VisDrone evaluation methodology (which requires complex mAP computation).
+
+    For official benchmark evaluation, use:
+    - Official VisDrone evaluation code: https://github.com/VisDrone/VisDrone-Dataset
+    - pycocotools: pip install pycocotools
+    - COCOeval API for mAP@0.5, mAP@0.75, mAP@0.5:0.95
+
+    Implementation Details:
+    - Matches predictions to targets using IoU threshold
+    - Only matches if IoU > threshold AND class labels match
+    - Handles duplicate matches (each target matched only once)
+    - Computes precision, recall, F1 at single IoU threshold (0.5 by default)
 
     Args:
         predictions: List of prediction dicts with 'boxes', 'labels', 'scores'
+                    Expected shape: boxes (N, 4), labels (N,), scores (N,)
         targets: List of target dicts with 'boxes', 'labels'
-        iou_threshold: IoU threshold for matching
+                Expected shape: boxes (M, 4), labels (M,)
+        iou_threshold: IoU threshold for matching predictions to targets (default: 0.5)
 
     Returns:
-        Dictionary of metrics
+        Dictionary with keys:
+        - precision: TP / (TP + FP)
+        - recall: TP / (TP + FN)
+        - f1: 2 * precision * recall / (precision + recall)
+        - tp: Total true positives
+        - fp: Total false positives
+        - fn: Total false negatives
+
+    Notes:
+        - This is NOT the same as official VisDrone mAP
+        - Official eval uses mAP@0.5, mAP@0.75, mAP@0.5:0.95
+        - Ignores class 0 (ignored-regions) in VisDrone
+        - For publication/benchmark claims, use official evaluation code
     """
     total_tp = 0
     total_fp = 0

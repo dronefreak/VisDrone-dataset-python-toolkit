@@ -26,9 +26,9 @@ def soft_nms(boxes, scores, iou_threshold=0.5, sigma=0.5, score_threshold=0.001)
         keep: Indices of boxes to keep
         scores: Updated scores (some reduced by soft-NMS)
     """
-    # Convert to numpy for easier manipulation
-    boxes = boxes.cpu().numpy()
-    scores = scores.cpu().numpy().copy()
+    # Convert to numpy for easier manipulation (device-agnostic)
+    boxes = boxes.detach().cpu().numpy()
+    scores = scores.detach().cpu().numpy().copy()
 
     N = len(boxes)
     keep = []
@@ -56,7 +56,7 @@ def soft_nms(boxes, scores, iou_threshold=0.5, sigma=0.5, score_threshold=0.001)
             # Soft-NMS: reduce score based on IoU
             # Gaussian penalty when IoU exceeds threshold
             if iou > iou_threshold:
-                weight = torch.exp(-(iou**2) / sigma)
+                weight = float(torch.exp(-torch.tensor(iou**2) / sigma))
                 scores[jdx] *= weight
 
     return torch.tensor(keep), torch.from_numpy(scores)

@@ -49,7 +49,7 @@ class YOLOv8Base(DetectionModel):
             from ultralytics import YOLO
         except ImportError as err:
             raise ImportError(
-                "Ultralytics YOLO not installed. " "Install with: pip install ultralytics>=8.0.0"
+                "Ultralytics YOLO not installed. Install with: pip install ultralytics>=8.0.0"
             ) from err
 
         # Load model

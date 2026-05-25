@@ -4,7 +4,6 @@ Tests for YOLO v8+ model integration.
 Tests model registration, abstract interface compliance, and basic functionality.
 """
 
-
 import pytest
 import torch
 

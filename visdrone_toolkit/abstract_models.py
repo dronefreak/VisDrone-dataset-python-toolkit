@@ -320,7 +320,7 @@ class ModelRegistry:
         name_lower = name.lower()
         if name_lower not in cls._registry:
             available = ", ".join(cls._registry.keys())
-            raise ValueError(f"Unknown model: {name}. " f"Available models: {available}") from None
+            raise ValueError(f"Unknown model: {name}. Available models: {available}") from None
         model_class = cls._registry[name_lower]
         return model_class(**kwargs)  # type: ignore[no-any-return]
 

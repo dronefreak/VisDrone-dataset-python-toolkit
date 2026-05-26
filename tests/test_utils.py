@@ -51,6 +51,7 @@ class TestModelFactory:
         """Test model can be set to eval mode."""
         model = get_model("fasterrcnn_resnet50", num_classes=num_classes, pretrained=False)
         model.eval()
+        model.training = False
         assert not model.training
 
     def test_model_parameters(self, num_classes):

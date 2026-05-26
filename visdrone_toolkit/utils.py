@@ -54,20 +54,35 @@ def get_model(
     """
     Get a detection model for VisDrone.
 
+    Supports models from ModelRegistry (YOLO, DETR, etc.) and legacy torchvision models.
+    Registry models are tried first, falling back to torchvision implementations.
+
     Args:
-        model_name: One of ['fasterrcnn_resnet50', 'fasterrcnn_mobilenet',
-                    'fcos_resnet50', 'retinanet_resnet50']
+        model_name: Model name (see ModelRegistry.list_available() for options)
         num_classes: Number of classes (default: 12 for VisDrone)
-        pretrained: Load pretrained weights (COCO)
-        pretrained_backbone: Use pretrained backbone
-        trainable_backbone_layers: Number of trainable backbone layers
+        pretrained: Load pretrained weights
+        trainable_backbone_layers: Number of trainable backbone layers (torchvision only)
         **kwargs: Additional model-specific arguments
 
     Returns:
         Detection model ready for training/inference
+
+    Raises:
+        ValueError: If model_name is not found
     """
+    from visdrone_toolkit.abstract_models import ModelRegistry
+
     model_name = model_name.lower()
 
+    # Try ModelRegistry first (YOLO, DETR, future models)
+    try:
+        return ModelRegistry.get(
+            model_name, num_classes=num_classes, pretrained=pretrained, **kwargs
+        )
+    except ValueError:
+        pass
+
+    # Fall back to legacy torchvision models
     if model_name == "fasterrcnn_resnet50":
         weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT if pretrained else None
         model = fasterrcnn_resnet50_fpn(
@@ -122,11 +137,8 @@ def get_model(
         )
 
     else:
-        raise ValueError(
-            f"Unknown model: {model_name}. "
-            f"Choose from: fasterrcnn_resnet50, fasterrcnn_mobilenet, "
-            f"fcos_resnet50, retinanet_resnet50"
-        )
+        available = list(ModelRegistry._registry.keys())
+        raise ValueError(f"Unknown model: {model_name}. Available models: {available}")
 
     return model
 

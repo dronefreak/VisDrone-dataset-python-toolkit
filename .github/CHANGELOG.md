@@ -17,6 +17,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **YOLO v8+ Integration (Phase 1-3 Complete)** - Full support for YOLO v8, v9, and v10 models alongside existing torchvision models:
+
+  - 19 registered YOLO models (YOLOv8: 5 variants, YOLOv9: 2 variants, YOLOv10: 5 variants, plus 7 additional)
+  - Abstract model interface (`DetectionModel`) for unified API
+  - Training adapters for framework-specific training (Torchvision, YOLO, DETR-prepared)
+  - Format converters for COCO ↔ YOLO coordinate conversion
+  - Model registry system for dynamic registration and extensibility
+
+- **Unified Training Infrastructure (Phase 2)** - Single training loop for all model types:
+
+  - `UnifiedTrainer` class with automatic adapter selection
+  - Support for gradient accumulation, AMP, learning rate scheduling
+  - Checkpoint management for all model types
+  - Equivalent to 60% code reduction in training script
+
+- **Torchvision Model Wrappers (Phase 2)** - Transparent wrappers for existing models:
+
+  - FasterRCNN (ResNet50, MobileNetV3 backbones)
+  - FCOS (ResNet50 backbone)
+  - RetinaNet (ResNet50 V2 backbone)
+  - 100% backward compatible with existing code
+
+- **YOLO Validation Tests (Phase 3)** - Comprehensive test suite for new architecture:
+
+  - `test_phase3_yolo_validation.py` - 18 test methods
+  - Validates model instantiation, format conversion, trainer integration
+  - Tests model registry, adapter selection, unified interface
+
 - **Comprehensive integration test suite** (`tests/test_integration.py`) - 18+ test methods across 6 test classes for regression protection of critical bug fixes:
   - `TestEmptyAnnotationHandling` - Validates empty annotation handling after parsing and augmentation
   - `TestSoftNMSDeviceHandling` - Ensures device compatibility across CPU/CUDA
@@ -25,13 +53,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `TestDatasetIntegration` - Dataset integration with DataLoader
   - `TestAugmentationIntegration` - Augmentation pipeline validation
 
+### Changed
+
+- **Model factory refactoring** (`utils.py`) - Registry-first lookup with backward compatibility:
+
+  - `get_model()` now checks ModelRegistry first (YOLO, DETR, custom models)
+  - Falls back to torchvision for backward compatibility
+  - All existing model names continue to work unchanged
+
+- **Training script refactor** (`scripts/train.py`) - 60% code reduction:
+
+  - Uses `UnifiedTrainer` instead of manual training loop
+  - Supports all registered models seamlessly
+  - Same command-line interface, identical results
+
+- **Inference script refactor** (`scripts/inference.py`) - 50% code reduction:
+  - Model-aware output format handling
+  - Automatic format conversion for all model types
+  - Simplified, more maintainable codebase
+
 ### Planned
+
+- **Phase 4: DETR Integration** - Detection Transformers support:
+
+  - DETR model wrappers (Facebook Research, Hugging Face)
+  - Hungarian matcher implementation
+  - Transformer-specific loss computation
+
+- **Phase 5: Advanced Features**:
+
+  - Model ensembling
+  - Transfer learning guides
+  - Multi-GPU and distributed training (DDP)
+  - Quantization support
+  - Performance optimization
+
+- **Phase 6: Documentation & Examples**:
+
+  - User guides for each model type
+  - Migration guides for existing users
+  - Performance benchmarking guide
+  - Custom model extension guide
 
 - Video sequence support for temporal tasks
 - Integration with Weights & Biases for experiment tracking
 - TensorRT optimization for faster inference
 - Docker images for easy deployment
-- Additional model architectures (DETR, YOLOv8, etc.)
 - Mobile deployment guide (CoreML, TFLite)
 - Soft-NMS vectorization with torch.cdist for 10-50x inference speedup
 

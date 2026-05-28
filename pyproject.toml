@@ -50,6 +50,7 @@ dependencies = [
     "tqdm>=4.65.0",
     "albumentations>=2.0.1",
     "ultralytics>=8.0.0",
+    "rich>=14.0.0",
 ]
 
 [project.optional-dependencies]

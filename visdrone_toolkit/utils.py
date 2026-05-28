@@ -140,7 +140,7 @@ def get_model(
         available = list(ModelRegistry._registry.keys())
         raise ValueError(f"Unknown model: {model_name}. Available models: {available}")
 
-    return model
+    return model.to(device="cuda") if torch.cuda.is_available() else model.to(device="cpu")
 
 
 def collate_fn(batch: list) -> tuple:

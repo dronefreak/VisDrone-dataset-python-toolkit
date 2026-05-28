@@ -1,4 +1,4 @@
-"""Inference script for VisDrone object detection models.
+r"""Inference script for VisDrone object detection models.
 
 Supports inference on:
 - Single images
@@ -85,32 +85,65 @@ def run_yolo(
     device: str,
     show: bool,
 ) -> None:
-    """Run YOLO inference using the Ultralytics engine.
-
-    Handles images, directories, and video files natively.
-    """
+    """Run YOLO inference with custom visualization."""
     try:
         from ultralytics import YOLO as UltralyticsYOLO
     except ImportError as err:
         raise ImportError("pip install ultralytics>=8.0.0") from err
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     model = UltralyticsYOLO(str(checkpoint_path))
+
     print(f"Running YOLO inference on {input_path} ...")
 
     results = model.predict(
         source=str(input_path),
         conf=score_threshold,
         device=device,
-        save=True,
-        project=str(output_dir.parent.resolve()),
-        name=output_dir.name,
-        exist_ok=True,
-        show=show,
+        imgsz=1280,
+        save=False,
+        verbose=True,
     )
 
-    total = len(results)
-    total_det = sum(len(r.boxes) for r in results)
-    print(f"\n✓ Processed {total} frame(s), {total_det} total detections")
+    total_det = 0
+
+    for result in results:
+        total_det += len(result.boxes)
+
+        # Original image (full resolution)
+        frame = result.orig_img.copy()
+
+        # Extract predictions
+        boxes = result.boxes.xyxy.cpu().numpy()
+        scores = result.boxes.conf.cpu().numpy()
+        labels = result.boxes.cls.cpu().numpy().astype(int)
+
+        # Custom visualization
+        viz = draw_detections(
+            frame,
+            boxes,
+            scores,
+            labels,
+            VISDRONE_CLASSES,
+        )
+
+        # Save
+        image_path = Path(result.path)
+        out_path = output_dir / f"{image_path.stem}_pred.jpg"
+
+        cv2.imwrite(str(out_path), viz)
+
+        if show:
+            cv2.imshow("YOLO Inference", viz)
+            if cv2.waitKey(0) == ord("q"):
+                break
+
+    if show:
+        cv2.destroyAllWindows()
+
+    print(f"\n Processed {len(results)} image(s)")
+    print(f"Total detections: {total_det}")
     print(f"Results saved to: {output_dir}")
 
 
@@ -214,19 +247,61 @@ def draw_detections(
 ) -> np.ndarray:
     """Draw bounding boxes and labels on a BGR frame."""
     out = frame.copy()
+    h, w = out.shape[:2]
+    print(f"Drawing {len(boxes)} detections on frame of size {w}x{h} ...")
+
+    # Much more conservative scaling
+    scale = max(h, w) / 2000.0
+
+    box_thickness = max(1, int(scale))
+    font_scale = max(0.3, scale * 0.35)
+    font_thickness = 1
+
     for box, score, label in zip(boxes, scores, labels):
         x1, y1, x2, y2 = box.astype(int)
-        cv2.rectangle(out, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        # Draw box
+        cv2.rectangle(
+            out,
+            (x1, y1),
+            (x2, y2),
+            (0, 255, 0),
+            box_thickness,
+        )
+
         name = class_names[label] if label < len(class_names) else f"cls{label}"
+
+        text = f"{name} {score:.2f}"
+
+        # Compute text size
+        (tw, th), baseline = cv2.getTextSize(
+            text,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            font_thickness,
+        )
+
+        # Filled label background
+        cv2.rectangle(
+            out,
+            (x1, y1 - th - baseline - 4),
+            (x1 + tw + 4, y1),
+            (0, 255, 0),
+            -1,
+        )
+
+        # Text
         cv2.putText(
             out,
-            f"{name}: {score:.2f}",
-            (x1, max(y1 - 5, 10)),
+            text,
+            (x1 + 2, y1 - 4),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            2,
+            font_scale,
+            (0, 0, 0),
+            font_thickness,
+            cv2.LINE_AA,
         )
+
     return out
 
 

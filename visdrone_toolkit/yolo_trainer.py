@@ -169,6 +169,29 @@ class YOLOTrainer:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+
+    @staticmethod
+    def _symlink_images(src_dir: Path, dst_dir: Path) -> None:
+        """Create per-file symlinks from dst_dir → src_dir for each image.
+
+        A directory-level symlink would be resolved by Ultralytics before
+        the 'images → labels' substitution, sending label discovery to the
+        wrong location. Per-file symlinks inside a real directory preserve
+        the workspace path for substitution while still being transparent
+        to open().
+
+        Args:
+            src_dir: Source directory containing image files
+            dst_dir: Destination directory (must already exist) to populate
+                     with symlinks named identically to the source files
+        """
+        for img in src_dir.iterdir():
+            if img.suffix.lower() in YOLOTrainer._IMAGE_SUFFIXES:
+                link = dst_dir / img.name
+                if not link.exists():
+                    link.symlink_to(img.resolve())
+
     def _prepare_dataset(
         self,
         tmp_path: Path,
@@ -192,12 +215,22 @@ class YOLOTrainer:
         train_labels = tmp_path / "labels" / "train"
         val_labels = tmp_path / "labels" / "val"
 
-        # Symlink images into temp tree so Ultralytics can find them via
-        # the relative "images/train" path in the YAML. Ultralytics then
-        # auto-discovers labels by replacing "images" → "labels" in the path.
-        train_img_link = tmp_path / "images" / "train"
-        train_img_link.parent.mkdir(parents=True, exist_ok=True)
-        train_img_link.symlink_to(Path(train_img_dir).resolve())
+        # IMPORTANT: Ultralytics auto-discovers labels by doing a string
+        # substitution "images" → "labels" on each *resolved* image path.
+        # A directory-level symlink (images/train → /data/images/) is resolved
+        # before substitution, so labels would be searched under /data/labels/
+        # (the user's data dir) rather than our temp dir — causing "no labels
+        # found".
+        #
+        # Fix: make images/train a REAL directory containing per-file symlinks.
+        # Ultralytics scans the real dir, sees paths like:
+        #   <tmp>/images/train/img001.jpg
+        # then substitutes → <tmp>/labels/train/img001.txt ✓
+        # Reading each image still works because file symlinks are transparent
+        # to open().
+        train_images_dir = tmp_path / "images" / "train"
+        train_images_dir.mkdir(parents=True, exist_ok=True)
+        self._symlink_images(Path(train_img_dir), train_images_dir)
 
         # Convert training annotations into labels/train/
         train_labels.mkdir(parents=True, exist_ok=True)
@@ -212,7 +245,7 @@ class YOLOTrainer:
 
         dataset: dict[str, Any] = {
             "path": str(tmp_path),
-            "train": "images/train",  # relative; Ultralytics resolves via path
+            "train": "images/train",
         }
         # nc must exactly match len(names). _VISDRONE_CLASSES has 11 entries
         # (ignored-regions at index 0 is always filtered out by convert_to_yolo).
@@ -223,9 +256,9 @@ class YOLOTrainer:
         dataset["names"] = names
 
         if val_img_dir and val_ann_dir:
-            val_img_link = tmp_path / "images" / "val"
-            val_img_link.parent.mkdir(parents=True, exist_ok=True)
-            val_img_link.symlink_to(Path(val_img_dir).resolve())
+            val_images_dir = tmp_path / "images" / "val"
+            val_images_dir.mkdir(parents=True, exist_ok=True)
+            self._symlink_images(Path(val_img_dir), val_images_dir)
 
             val_labels.mkdir(parents=True, exist_ok=True)
             convert_to_yolo(

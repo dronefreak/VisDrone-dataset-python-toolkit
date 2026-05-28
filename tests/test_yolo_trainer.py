@@ -199,18 +199,12 @@ class TestPrepareDatasetDirStructure:
             trainer._prepare_dataset(work, src / "images", src / "annotations", None, None)
             assert (work / "labels" / "train").is_dir()
 
-    def test_images_train_symlink_created(self):
-        with tempfile.TemporaryDirectory() as tmp_str:
-            tmp = Path(tmp_str)
-            src = tmp / "src"
-            _make_visdrone_annotation(src)
-            trainer = YOLOTrainer("yolov8n")
-            work = tmp / "work"
-            trainer._prepare_dataset(work, src / "images", src / "annotations", None, None)
-            link = work / "images" / "train"
-            assert link.is_symlink() or link.is_dir()
+    def test_images_train_is_real_directory(self):
+        """images/train must be a real directory, NOT a directory symlink.
 
-    def test_images_train_symlink_points_to_source(self):
+        A dir symlink is resolved by Ultralytics before 'images → labels'
+        substitution, breaking label auto-discovery.
+        """
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
             src = tmp / "src"
@@ -218,8 +212,62 @@ class TestPrepareDatasetDirStructure:
             trainer = YOLOTrainer("yolov8n")
             work = tmp / "work"
             trainer._prepare_dataset(work, src / "images", src / "annotations", None, None)
-            link = work / "images" / "train"
-            assert link.resolve() == (src / "images").resolve()
+            images_train = work / "images" / "train"
+            assert images_train.is_dir()
+            assert not images_train.is_symlink(), (
+                "images/train must be a real dir (not a dir symlink) so Ultralytics "
+                "label discovery uses the workspace path, not the resolved data path"
+            )
+
+    def test_images_train_contains_file_symlinks(self):
+        """Individual image symlinks inside images/train/ point to source files."""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            src = tmp / "src"
+            _make_visdrone_annotation(src)
+            # Add a real .jpg to test against
+            (src / "images" / "img001.jpg").write_bytes(b"fake")
+            trainer = YOLOTrainer("yolov8n")
+            work = tmp / "work"
+            trainer._prepare_dataset(work, src / "images", src / "annotations", None, None)
+            images_train = work / "images" / "train"
+            links = list(images_train.iterdir())
+            assert len(links) > 0, "images/train should contain file symlinks"
+            for link in links:
+                assert link.is_symlink(), f"{link} should be a file symlink"
+                assert link.resolve().exists(), f"symlink target for {link} should exist"
+
+    def test_file_symlinks_resolve_to_source(self):
+        """File symlinks in images/train resolve to the original source files."""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            src = tmp / "src"
+            _make_visdrone_annotation(src)
+            (src / "images" / "testimg.jpg").write_bytes(b"fake")
+            trainer = YOLOTrainer("yolov8n")
+            work = tmp / "work"
+            trainer._prepare_dataset(work, src / "images", src / "annotations", None, None)
+            link = work / "images" / "train" / "testimg.jpg"
+            assert link.is_symlink()
+            assert link.resolve() == (src / "images" / "testimg.jpg").resolve()
+
+    def test_label_discovery_path_consistency(self):
+        """Verify images/train path leads to labels/train via images→labels substitution."""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            src = tmp / "src"
+            _make_visdrone_annotation(src)
+            trainer = YOLOTrainer("yolov8n")
+            work = tmp / "work"
+            trainer._prepare_dataset(work, src / "images", src / "annotations", None, None)
+
+            # Simulate Ultralytics img2label_paths substitution on a workspace path
+            img_path = str(work / "images" / "train" / "img001.jpg")
+            label_path = img_path.replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
+            expected_labels_dir = str(work / "labels" / "train")
+            assert label_path.startswith(expected_labels_dir), (
+                f"Label path {label_path} should be under {expected_labels_dir}"
+            )
 
     def test_labels_val_created_when_val_provided(self):
         with tempfile.TemporaryDirectory() as tmp_str:
@@ -236,6 +284,25 @@ class TestPrepareDatasetDirStructure:
                 src / "annotations",
             )
             assert (work / "labels" / "val").is_dir()
+
+    def test_val_images_dir_is_real_directory(self):
+        """images/val must also be a real directory, not a dir symlink."""
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            src = tmp / "src"
+            _make_visdrone_annotation(src)
+            trainer = YOLOTrainer("yolov8n")
+            work = tmp / "work"
+            trainer._prepare_dataset(
+                work,
+                src / "images",
+                src / "annotations",
+                src / "images",
+                src / "annotations",
+            )
+            images_val = work / "images" / "val"
+            assert images_val.is_dir()
+            assert not images_val.is_symlink()
 
 
 # ---------------------------------------------------------------------------

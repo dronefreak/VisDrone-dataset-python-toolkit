@@ -137,7 +137,7 @@ def _is_yolo_model(model_name: str) -> bool:
 
 def _train_yolo(args) -> None:
     """Route YOLO model training to the Ultralytics engine via YOLOTrainer."""
-    from visdrone_toolkit.yolo_trainer import YOLOTrainer
+    from visdrone_toolkit.yolo_trainer import _VISDRONE_CLASSES, YOLOTrainer
 
     console.print(
         "\n[bold yellow]YOLO model detected — using Ultralytics training engine[/bold yellow]"
@@ -147,12 +147,16 @@ def _train_yolo(args) -> None:
         "are handled internally by Ultralytics for YOLO models.[/dim]\n"
     )
 
-    # Map device torch.device → string Ultralytics expects
+    # YOLO always trains with 11 classes: VisDrone's ignored-regions (class 0) is
+    # removed by the converter. If the user passed --num-classes 12 (the raw count),
+    # clamp to the actual filtered count so nc matches len(names) in the YAML.
+    num_classes = min(args.num_classes, len(_VISDRONE_CLASSES))
+
     device_str = args.device  # e.g. 'cuda', 'cpu', '0'
 
     trainer = YOLOTrainer(
         model_name=args.model,
-        num_classes=args.num_classes,
+        num_classes=num_classes,
         device=device_str,
     )
 

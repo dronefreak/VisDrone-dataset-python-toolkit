@@ -291,7 +291,7 @@ python scripts/train.py \
 - `--lr-schedule cosine|multistep|step` - LR schedule type
 - `--amp` - Mixed precision training (2x speedup)
 
-> **Note for YOLO models:** `--multiscale` and `--small-anchors` are ignored — YOLO v8+ is anchor-free and handles multi-scale internally. Use `--batch-size 16` or higher (YOLO is much more memory-efficient than FasterRCNN).
+> **Note for YOLO models:** `--multiscale`, `--small-anchors`, `--lr-schedule`, and `--accumulation-steps` are ignored — YOLO v8+ is anchor-free and these are handled internally by Ultralytics. Use `--batch-size 16` or higher (YOLO is much more memory-efficient than FasterRCNN). `--num-classes` is automatically clamped to 11 for YOLO (VisDrone's 11 real classes after filtering the ignored-regions label).
 
 ### Inference
 

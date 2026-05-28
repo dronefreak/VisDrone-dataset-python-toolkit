@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Metrics documentation clarity** - Expanded `compute_metrics` docstring with comprehensive warnings about limitations. The function uses simple TP/FP/FN matching at single IoU threshold (0.5) and is for training monitoring only. It does NOT match official VisDrone evaluation methodology (mAP@0.5, mAP@0.75, mAP@0.5:0.95). Added references to official evaluation code and pycocotools.
 
+- **YOLO `nc`/`names` mismatch crash** — Fixed `SyntaxError: 'names' length 11 and 'nc: 12' must match` that occurred when `--num-classes 12` (VisDrone's raw count including ignored-regions) was passed to `YOLOTrainer`. Ultralytics validates `nc == len(names)` strictly at trainer startup. Root cause: `_VISDRONE_CLASSES` has 11 entries (class 0 = ignored-regions is filtered by `convert_to_yolo`) but `nc` was set from `self.num_classes` (could be 12). Fix: derive `nc` from `len(names)` in `_prepare_dataset`; `scripts/train.py` also clamps `num_classes` to `len(_VISDRONE_CLASSES)` before constructing `YOLOTrainer`.
+
+- **YOLO `nc` passed to `model.train()`** — Fixed `SyntaxError: 'nc' is not a valid YOLO argument` crash. `nc` belongs in `dataset.yaml` only; removed it from the `model.train()` keyword arguments.
+
+- **YOLO fake training loop** — `_training_forward()` was returning `torch.tensor(0.0, requires_grad=True)` — a dummy scalar with disconnected gradients and no real loss computation. Replaced with architectural separation: YOLO models use `YOLOTrainer` (delegates to Ultralytics engine); `YOLOTrainingAdapter.training_step()` raises `NotImplementedError` to make the incorrect path explicit and detectable.
+
 ### Added
 
 - **YOLO v8+ Integration (Phase 1-3 Complete)** - Full support for YOLO v8, v9, and v10 models alongside existing torchvision models:
@@ -24,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Training adapters for framework-specific training (Torchvision, YOLO, DETR-prepared)
   - Format converters for COCO ↔ YOLO coordinate conversion
   - Model registry system for dynamic registration and extensibility
+
+- **YOLO Ultralytics training delegation (Phase 4 Critical Fix)** - Replaced fake YOLO training loop with correct Ultralytics engine delegation:
+
+  - `YOLOTrainer` (`visdrone_toolkit/yolo_trainer.py`) — wraps `ultralytics.YOLO.train()` for correct gradient flow, DFL/box/cls losses, TaskAlignedAssigner, and Mosaic augmentation
+  - `YOLOTrainingAdapter.training_step()` now raises `NotImplementedError` (intentional) — YOLO training is routed through `YOLOTrainer`, not the torchvision custom loop
+  - `scripts/train.py` routes YOLO models to `YOLOTrainer` and torchvision models to `UnifiedTrainer` via `_is_yolo_model()`
+  - Unified entry points (CLI, output dirs, logging) preserved; only training internals are separated
+
+- **YOLO dataset YAML pipeline** — VisDrone-to-YOLO on-the-fly conversion:
+
+  - Converts VisDrone annotations to YOLO `.txt` format in a temporary directory
+  - Creates `images/train` and `images/val` symlinks (no data copy; avoids copying GBs)
+  - Generates `dataset.yaml` consumed directly by Ultralytics
+  - Filters ignored-regions (class 0) and produces 11-class YOLO labels
 
 - **Unified Training Infrastructure (Phase 2)** - Single training loop for all model types:
 
@@ -41,9 +61,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **YOLO Validation Tests (Phase 3)** - Comprehensive test suite for new architecture:
 
-  - `test_phase3_yolo_validation.py` - 18 test methods
+  - `test_yolo_validation.py` - 18 test methods
   - Validates model instantiation, format conversion, trainer integration
   - Tests model registry, adapter selection, unified interface
+
+- **YOLOTrainer unit tests** (`tests/test_yolo_trainer.py`) - 35 test methods covering:
+
+  - `_VISDRONE_CLASSES` correctness (11 classes, no ignored-regions, no duplicates)
+  - `YOLOTrainer.__init__` for all YOLO versions (v8, v9, v10)
+  - `_prepare_dataset` YAML consistency: `nc == len(names)` for `num_classes` in {5, 11, 12}
+  - Regression test: `num_classes=12` must not cause Ultralytics `nc/names` mismatch crash
+  - Directory structure: symlinks, `labels/train`, `labels/val`
+  - `train()` method with mocked Ultralytics: epochs, batch, lr0, no `nc` in `model.train()`, extra kwargs
+  - Output directory creation, return value keys
 
 - **Comprehensive integration test suite** (`tests/test_integration.py`) - 18+ test methods across 6 test classes for regression protection of critical bug fixes:
   - `TestEmptyAnnotationHandling` - Validates empty annotation handling after parsing and augmentation

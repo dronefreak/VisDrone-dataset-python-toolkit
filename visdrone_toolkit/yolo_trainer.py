@@ -150,7 +150,6 @@ class YOLOTrainer:
                 project=str(output_dir),
                 name=self._model_name,
                 exist_ok=True,
-                nc=self.num_classes,
                 **extra_kwargs,
             )
 
@@ -193,18 +192,42 @@ class YOLOTrainer:
         train_labels = tmp_path / "labels" / "train"
         val_labels = tmp_path / "labels" / "val"
 
-        # Convert training annotations
+        # Symlink images into temp tree so Ultralytics can find them via
+        # the relative "images/train" path in the YAML. Ultralytics then
+        # auto-discovers labels by replacing "images" → "labels" in the path.
+        train_img_link = tmp_path / "images" / "train"
+        train_img_link.parent.mkdir(parents=True, exist_ok=True)
+        train_img_link.symlink_to(Path(train_img_dir).resolve())
+
+        # Convert training annotations into labels/train/
+        train_labels.mkdir(parents=True, exist_ok=True)
         convert_to_yolo(
             image_dir=train_img_dir,
             annotation_dir=train_ann_dir,
             output_dir=train_labels,
             filter_ignored=True,
             filter_crowd=True,
-            create_yaml=False,  # We write our own YAML below
+            create_yaml=False,
         )
 
-        # Convert validation annotations (if provided)
+        dataset: dict[str, Any] = {
+            "path": str(tmp_path),
+            "train": "images/train",  # relative; Ultralytics resolves via path
+        }
+        # nc must exactly match len(names). _VISDRONE_CLASSES has 11 entries
+        # (ignored-regions at index 0 is always filtered out by convert_to_yolo).
+        # Use the actual list length rather than self.num_classes to prevent mismatches
+        # when callers pass 12 (the raw VisDrone count including ignored-regions).
+        names = _VISDRONE_CLASSES[: self.num_classes]
+        dataset["nc"] = len(names)
+        dataset["names"] = names
+
         if val_img_dir and val_ann_dir:
+            val_img_link = tmp_path / "images" / "val"
+            val_img_link.parent.mkdir(parents=True, exist_ok=True)
+            val_img_link.symlink_to(Path(val_img_dir).resolve())
+
+            val_labels.mkdir(parents=True, exist_ok=True)
             convert_to_yolo(
                 image_dir=val_img_dir,
                 annotation_dir=val_ann_dir,
@@ -213,19 +236,7 @@ class YOLOTrainer:
                 filter_crowd=True,
                 create_yaml=False,
             )
-
-        # Write dataset YAML — Ultralytics requires absolute image paths
-        dataset: dict[str, Any] = {
-            "path": str(tmp_path),
-            "train": {"images": str(Path(train_img_dir).resolve()), "labels": str(train_labels)},
-            "nc": self.num_classes,
-            "names": _VISDRONE_CLASSES[: self.num_classes],
-        }
-        if val_img_dir and val_ann_dir:
-            dataset["val"] = {
-                "images": str(Path(val_img_dir).resolve()),
-                "labels": str(val_labels),
-            }
+            dataset["val"] = "images/val"
 
         yaml_path = tmp_path / "dataset.yaml"
         with open(yaml_path, "w") as f:

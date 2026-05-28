@@ -1,47 +1,59 @@
 """
 Evaluation script for VisDrone object detection models.
 
-Computes metrics on validation/test sets.
-Supports COCO-style evaluation with pycocotools if available.
+Computes standard object detection metrics on validation/test sets.
+Supports torchvision models (P/R/F1 + mAP via pycocotools) and
+YOLO models (mAP@0.5, mAP@0.5:0.95 via Ultralytics val engine).
+
+Usage examples:
+  # Torchvision model
+  python scripts/evaluate.py \\
+      --checkpoint outputs/fasterrcnn/best.pt \\
+      --model fasterrcnn_resnet50 \\
+      --image-dir data/VisDrone2019-DET-val/images \\
+      --annotation-dir data/VisDrone2019-DET-val/annotations
+
+  # YOLO model
+  python scripts/evaluate.py \\
+      --checkpoint outputs/yolov8n_200ep/yolov8n/weights/best.pt \\
+      --model yolov8n \\
+      --image-dir data/VisDrone2019-DET-val/images \\
+      --annotation-dir data/VisDrone2019-DET-val/annotations
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from rich.console import Console
+from rich.table import Table
 
-from visdrone_toolkit.dataset import VisDroneDataset
-from visdrone_toolkit.soft_nms_utils import (
-    apply_soft_nms_per_class,
-    configure_model_for_better_recall,
-)
-
-# Import TTA and Soft-NMS utilities
-from visdrone_toolkit.tta_utils import tta_inference
 from visdrone_toolkit.utils import VISDRONE_CLASSES, collate_fn, compute_metrics, get_model
 
+console = Console()
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate VisDrone detection models")
+_YOLO_PREFIXES = ("yolo",)
+
+
+def _is_yolo_model(name: str) -> bool:
+    return name.lower().startswith(_YOLO_PREFIXES)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate VisDrone detection models",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
     # Model
-    parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint")
-    parser.add_argument(
-        "--model",
-        default="fasterrcnn_resnet50",
-        choices=[
-            "fasterrcnn_resnet50",
-            "fasterrcnn_mobilenet",
-            "fcos_resnet50",
-            "retinanet_resnet50",
-        ],
-        help="Model architecture",
-    )
+    parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint / .pt file")
+    parser.add_argument("--model", default="fasterrcnn_resnet50", help="Model name")
     parser.add_argument("--num-classes", type=int, default=12, help="Number of classes")
 
     # Dataset
@@ -51,141 +63,174 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=4, help="DataLoader workers")
 
     # Evaluation options
-    parser.add_argument(
-        "--score-threshold", type=float, default=0.05, help="Score threshold for detections"
-    )
-    parser.add_argument(
-        "--iou-threshold", type=float, default=0.5, help="IoU threshold for matching"
-    )
-
-    # NEW: TTA and Soft-NMS options
-    parser.add_argument("--tta", action="store_true", help="Use test-time augmentation")
-    parser.add_argument("--soft-nms", action="store_true", help="Use soft-NMS instead of hard NMS")
-    parser.add_argument(
-        "--lower-threshold", action="store_true", help="Use lower detection threshold (0.01)"
-    )
-
-    parser.add_argument(
-        "--device", default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda/cpu)"
-    )
+    parser.add_argument("--score-threshold", type=float, default=0.05, help="Score threshold")
+    parser.add_argument("--iou-threshold", type=float, default=0.5, help="IoU threshold")
+    parser.add_argument("--soft-nms", action="store_true", help="Use Soft-NMS (torchvision only)")
+    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 
     # Output
     parser.add_argument("--output-dir", default="eval_outputs", help="Output directory")
-    parser.add_argument(
-        "--save-predictions", action="store_true", help="Save predictions to JSON file"
-    )
+    parser.add_argument("--save-predictions", action="store_true", help="Save predictions JSON")
 
     return parser.parse_args()
 
 
-def load_model(
+# ---------------------------------------------------------------------------
+# YOLO evaluation path
+# ---------------------------------------------------------------------------
+
+
+def evaluate_yolo(
+    checkpoint_path: str,
+    image_dir: str | Path,
+    annotation_dir: str | Path,
+    num_classes: int,
+    device: str,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Evaluate a YOLO model using the Ultralytics val engine.
+
+    Converts VisDrone annotations to YOLO format on-the-fly, runs
+    ``model.val()``, and returns the standard Ultralytics metrics dict.
+    """
+    try:
+        from ultralytics import YOLO as UltralyticsYOLO
+    except ImportError as err:
+        raise ImportError("pip install ultralytics>=8.0.0") from err
+
+    import tempfile
+
+    from visdrone_toolkit.yolo_trainer import _VISDRONE_CLASSES, YOLOTrainer
+
+    console.print("\n[bold cyan]YOLO evaluation — using Ultralytics val engine[/bold cyan]")
+
+    names = _VISDRONE_CLASSES[: min(num_classes, len(_VISDRONE_CLASSES))]
+    trainer = YOLOTrainer.__new__(YOLOTrainer)
+    trainer.num_classes = len(names)
+    trainer._UltralyticsYOLO = UltralyticsYOLO
+
+    with tempfile.TemporaryDirectory(prefix="visdrone_yolo_eval_") as tmp:
+        tmp_path = Path(tmp)
+        dataset_yaml = trainer._prepare_dataset(
+            tmp_path,
+            image_dir,
+            annotation_dir,
+            image_dir,  # use same dir for val
+            annotation_dir,
+        )
+
+        model = UltralyticsYOLO(str(checkpoint_path))
+        results = model.val(
+            data=str(dataset_yaml),
+            device=device,
+            split="val",
+            save_json=False,
+            project=str(output_dir.resolve()),
+            name="yolo_eval",
+            exist_ok=True,
+        )
+
+    # Extract metrics from Ultralytics results
+    metrics: dict[str, Any] = {}
+    if hasattr(results, "box"):
+        metrics["mAP50"] = float(results.box.map50)
+        metrics["mAP50_95"] = float(results.box.map)
+        metrics["precision"] = float(results.box.mp)
+        metrics["recall"] = float(results.box.mr)
+        # Per-class
+        if hasattr(results.box, "ap_class_index") and results.box.ap_class_index is not None:
+            metrics["per_class"] = {}
+            for i, cls_idx in enumerate(results.box.ap_class_index):
+                cls_name = names[cls_idx] if cls_idx < len(names) else f"class_{cls_idx}"
+                metrics["per_class"][cls_name] = {
+                    "mAP50": float(results.box.ap50[i]) if i < len(results.box.ap50) else 0.0,
+                    "mAP50_95": float(results.box.ap[i]) if i < len(results.box.ap) else 0.0,
+                }
+
+    return metrics
+
+
+# ---------------------------------------------------------------------------
+# Torchvision evaluation path
+# ---------------------------------------------------------------------------
+
+
+def load_torchvision_model(
     checkpoint_path: str,
     model_name: str,
     num_classes: int,
     device: torch.device,
-    lower_threshold: bool = False,
-):
-    """Load model from checkpoint with proper architecture modifications."""
-    print(f"Loading model from {checkpoint_path}...")
+) -> torch.nn.Module:
+    """Load a torchvision detection model from checkpoint."""
+    console.print(f"Loading [bold]{model_name}[/bold] from {checkpoint_path}...")
 
-    model = get_model(
-        model_name=model_name,
-        num_classes=num_classes,
-        pretrained=False,
-    )
+    model = get_model(model_name=model_name, num_classes=num_classes, pretrained=False)
 
-    # Apply small anchor modifications for Faster R-CNN
-    if model_name in ["fasterrcnn_resnet50", "fasterrcnn_mobilenet"]:
-        print("Applying small anchor modifications...")
-        from torchvision.models.detection.anchor_utils import AnchorGenerator
-
-        if hasattr(model, "rpn") and hasattr(model.rpn, "anchor_generator"):
-            # Small anchors: 16, 32, 64, 128, 256
-            small_anchor_sizes = ((16,), (32,), (64,), (128,), (256,))
-            aspect_ratios = ((0.5, 1.0, 2.0),) * len(small_anchor_sizes)
-            model.rpn.anchor_generator = AnchorGenerator(
-                sizes=small_anchor_sizes, aspect_ratios=aspect_ratios
-            )
-
-            # Update RPN parameters
-            model.rpn.pre_nms_top_n_train = 2000
-            model.rpn.post_nms_top_n_train = 2000
-            model.rpn.pre_nms_top_n_test = 1000
-            model.rpn.post_nms_top_n_test = 1000
-
-            # NMS settings
-            model.roi_heads.nms_thresh = 0.3
-            model.roi_heads.score_thresh = 0.05
-            model.roi_heads.detections_per_img = 300
-
-            print("✓ Small anchors and NMS settings applied")
-
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     if "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
         if "epoch" in checkpoint:
-            print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
+            console.print(f"  Loaded from epoch {checkpoint['epoch']}")
     else:
         model.load_state_dict(checkpoint)
 
-    # Apply lower threshold configuration if requested
-    if lower_threshold:
-        model = configure_model_for_better_recall(model, model_name)
-
     model.to(device)
     model.eval()
-
-    print("✓ Model loaded successfully")
+    console.print("  ✓ Model loaded")
     return model
 
 
 @torch.no_grad()
-def evaluate_model(
+def evaluate_torchvision(
     model: torch.nn.Module,
-    data_loader: DataLoader,
+    image_dir: str | Path,
+    annotation_dir: str | Path,
+    batch_size: int,
+    num_workers: int,
     device: torch.device,
-    score_threshold: float = 0.05,
-    iou_threshold: float = 0.5,
-    use_tta: bool = False,
-    use_soft_nms: bool = False,
-) -> Dict:
-    """Evaluate model on dataset with optional TTA and Soft-NMS."""
-    print(f"\n{'=' * 60}")
-    print("Running Evaluation")
-    if use_tta:
-        print("  Using Test-Time Augmentation (TTA)")
-    if use_soft_nms:
-        print("  Using Soft-NMS")
-    print(f"{'=' * 60}")
+    score_threshold: float,
+    iou_threshold: float,
+    use_soft_nms: bool,
+    output_dir: Path,
+    save_predictions: bool,
+) -> dict[str, Any]:
+    """Evaluate a torchvision model and return metrics."""
+    from torch.utils.data import DataLoader
 
-    all_predictions = []
-    all_targets = []
-    total_inference_time = 0.0
-    num_images = 0
+    from visdrone_toolkit.dataset import VisDroneDataset
+    from visdrone_toolkit.soft_nms_utils import apply_soft_nms_per_class
 
-    for batch_idx, (images, targets) in enumerate(data_loader):
-        batch_start = time.time()
+    dataset = VisDroneDataset(
+        image_dir=str(image_dir),
+        annotation_dir=str(annotation_dir),
+        filter_ignored=True,
+        filter_crowd=True,
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+        pin_memory=(device.type == "cuda"),
+    )
 
-        for img, target in zip(images, targets):
-            # Use TTA if enabled
-            if use_tta:
-                pred = tta_inference(model, img, device, score_threshold)
-            else:
-                # Standard inference
-                pred = model([img.to(device)])[0]
+    all_preds: list[dict[str, torch.Tensor]] = []
+    all_targets: list[dict[str, torch.Tensor]] = []
+    t0 = time.time()
 
-                # Filter by score threshold
-                mask = pred["scores"] >= score_threshold
-                pred = {
-                    "boxes": pred["boxes"][mask],
-                    "labels": pred["labels"][mask],
-                    "scores": pred["scores"][mask],
-                }
+    for images, targets in loader:
+        for img, tgt in zip(images, targets):
+            pred = model([img.to(device)])[0]
+            mask = pred["scores"] >= score_threshold
+            pred = {
+                k: v[mask]
+                for k, v in pred.items()
+                if isinstance(v, torch.Tensor) and v.shape[0] == mask.shape[0]
+            }
 
-            # Apply soft-NMS if enabled
-            if use_soft_nms and len(pred["boxes"]) > 0:
-                boxes, labels, scores = apply_soft_nms_per_class(
+            if use_soft_nms and len(pred.get("boxes", [])) > 0:
+                b, lbl, s = apply_soft_nms_per_class(
                     pred["boxes"].cpu(),
                     pred["labels"].cpu(),
                     pred["scores"].cpu(),
@@ -193,252 +238,302 @@ def evaluate_model(
                     sigma=0.5,
                     score_threshold=score_threshold,
                 )
-                pred = {
-                    "boxes": boxes,
-                    "labels": labels,
-                    "scores": scores,
-                }
+                pred = {"boxes": b, "labels": lbl, "scores": s}
 
-            all_predictions.append(pred)
-            all_targets.append(target)
-            num_images += 1
+            all_preds.append(pred)
+            all_targets.append(tgt)
 
-        inference_time = time.time() - batch_start
-        total_inference_time += inference_time
+    elapsed = time.time() - t0
+    n = len(all_preds)
 
-        # Print progress
-        if (batch_idx + 1) % 10 == 0:
-            print(f"Processed {num_images} images...")
+    # Overall metrics
+    overall = compute_metrics(all_preds, all_targets, iou_threshold)
 
-    print(f"\nTotal images evaluated: {num_images}")
-    print(f"Average inference time: {(total_inference_time / num_images) * 1000:.2f}ms")
-    print(f"Average FPS: {num_images / total_inference_time:.2f}")
+    # Per-class metrics
+    per_class = _per_class_metrics(all_preds, all_targets, iou_threshold)
 
-    # Compute metrics
-    print(f"\n{'=' * 60}")
-    print("Computing Metrics")
-    print(f"{'=' * 60}")
+    # Try mAP via pycocotools
+    map50: float | None = None
+    map50_95: float | None = None
+    import contextlib
 
-    metrics = compute_metrics(all_predictions, all_targets, iou_threshold)
+    with contextlib.suppress(Exception):
+        map50, map50_95 = _coco_map(all_preds, all_targets)
 
-    # Print overall metrics
-    print(f"\nOverall Metrics (IoU={iou_threshold}):")
-    print(f"  Precision: {metrics['precision']:.4f}")
-    print(f"  Recall: {metrics['recall']:.4f}")
-    print(f"  F1-Score: {metrics['f1']:.4f}")
-    print(f"  True Positives: {metrics['tp']}")
-    print(f"  False Positives: {metrics['fp']}")
-    print(f"  False Negatives: {metrics['fn']}")
-
-    # Compute per-class metrics
-    print("\nPer-Class Metrics:")
-    print(f"{'=' * 60}")
-
-    per_class_metrics = compute_per_class_metrics(all_predictions, all_targets, iou_threshold)
-
-    for class_idx, class_metrics in sorted(per_class_metrics.items()):
-        class_name = (
-            VISDRONE_CLASSES[class_idx]
-            if class_idx < len(VISDRONE_CLASSES)
-            else f"class_{class_idx}"
-        )
-        print(f"\n{class_name} (class {class_idx}):")
-        print(f"  Precision: {class_metrics['precision']:.4f}")
-        print(f"  Recall: {class_metrics['recall']:.4f}")
-        print(f"  F1-Score: {class_metrics['f1']:.4f}")
-        print(f"  Ground truth instances: {class_metrics['gt_count']}")
-        print(f"  Predicted instances: {class_metrics['pred_count']}")
-
-    return {
-        "overall_metrics": metrics,
-        "per_class_metrics": per_class_metrics,
-        "predictions": all_predictions,
-        "targets": all_targets,
-        "inference_time": total_inference_time,
-        "num_images": num_images,
+    metrics: dict[str, Any] = {
+        "precision": overall["precision"],
+        "recall": overall["recall"],
+        "f1": overall["f1"],
+        "mAP50": map50,
+        "mAP50_95": map50_95,
+        "per_class": per_class,
+        "num_images": n,
+        "fps": n / elapsed if elapsed > 0 else 0,
+        "avg_ms": elapsed / n * 1000 if n > 0 else 0,
     }
 
+    if save_predictions:
+        _save_json(all_preds, all_targets, output_dir / "predictions.json")
 
-def compute_per_class_metrics(
-    predictions: List[Dict],
-    targets: List[Dict],
-    iou_threshold: float = 0.5,
-) -> Dict[int, Dict]:
-    """Compute per-class metrics."""
+    return metrics
+
+
+def _per_class_metrics(
+    predictions: list[dict], targets: list[dict], iou_threshold: float
+) -> dict[str, dict[str, float]]:
+    """Per-class P/R/F1."""
     from visdrone_toolkit.utils import box_iou
 
-    # Collect all class indices
-    all_classes = set()
-    for target in targets:
-        all_classes.update(target["labels"].cpu().numpy().tolist())
+    all_classes: set[int] = set()
+    for t in targets:
+        all_classes.update(t["labels"].cpu().tolist())
 
-    per_class_metrics = {}
+    result: dict[str, dict[str, float]] = {}
+    for cls in sorted(all_classes):
+        tp = fp = fn = 0
+        for pred, tgt in zip(predictions, targets):
+            pm = pred.get("labels", torch.tensor([])).cpu() == cls
+            tm = tgt["labels"].cpu() == cls
+            pb = pred.get("boxes", torch.zeros(0, 4)).cpu()[pm]
+            tb = tgt["boxes"].cpu()[tm]
 
-    for class_idx in sorted(all_classes):
-        tp = 0
-        fp = 0
-        fn = 0
-        gt_count = 0
-        pred_count = 0
-
-        for pred, target in zip(predictions, targets):
-            # Filter by class
-            pred_mask = pred["labels"].cpu() == class_idx
-            target_mask = target["labels"].cpu() == class_idx
-
-            pred_boxes = pred["boxes"].cpu()[pred_mask]
-            target_boxes = target["boxes"].cpu()[target_mask]
-
-            gt_count += len(target_boxes)
-            pred_count += len(pred_boxes)
-
-            if len(pred_boxes) == 0 and len(target_boxes) == 0:
+            if len(pb) == 0 and len(tb) == 0:
                 continue
-            elif len(pred_boxes) == 0:
-                fn += len(target_boxes)
+            if len(pb) == 0:
+                fn += len(tb)
                 continue
-            elif len(target_boxes) == 0:
-                fp += len(pred_boxes)
+            if len(tb) == 0:
+                fp += len(pb)
                 continue
 
-            # Compute IoU
-            ious = box_iou(pred_boxes, target_boxes)
-
-            # Match predictions to targets
-            matched_targets = set()
-            for i in range(len(pred_boxes)):
-                max_iou, max_idx = ious[i].max(dim=0)
-                if max_iou >= iou_threshold:
-                    if max_idx.item() not in matched_targets:
-                        tp += 1
-                        matched_targets.add(max_idx.item())
-                    else:
-                        fp += 1
+            ious = box_iou(pb, tb)
+            matched: set[int] = set()
+            for i in range(len(pb)):
+                best_iou, best_idx = ious[i].max(dim=0)
+                if best_iou >= iou_threshold and best_idx.item() not in matched:
+                    tp += 1
+                    matched.add(best_idx.item())
                 else:
                     fp += 1
+            fn += len(tb) - len(matched)
 
-            fn += len(target_boxes) - len(matched_targets)
+        prec = tp / (tp + fp) if tp + fp else 0.0
+        rec = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * prec * rec / (prec + rec) if prec + rec else 0.0
+        name = VISDRONE_CLASSES[cls] if cls < len(VISDRONE_CLASSES) else f"class_{cls}"
+        result[name] = {"precision": prec, "recall": rec, "f1": f1}
 
-        # Compute metrics
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-
-        per_class_metrics[class_idx] = {
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-            "tp": tp,
-            "fp": fp,
-            "fn": fn,
-            "gt_count": gt_count,
-            "pred_count": pred_count,
-        }
-
-    return per_class_metrics
+    return result
 
 
-def save_results(results: Dict, output_dir: Path, save_predictions: bool):
-    """Save evaluation results."""
-    output_dir.mkdir(parents=True, exist_ok=True)
+def _coco_map(predictions: list[dict], targets: list[dict]) -> tuple[float, float]:
+    """Compute mAP@0.5 and mAP@0.5:0.95 via pycocotools."""
+    from pycocotools.coco import COCO
+    from pycocotools.cocoeval import COCOeval
 
-    # Save metrics
-    metrics_path = output_dir / "metrics.json"
-    metrics_data = {
-        "overall_metrics": results["overall_metrics"],
-        "per_class_metrics": {
-            int(k): {
-                key: float(val) if isinstance(val, (np.floating, float)) else int(val)
-                for key, val in v.items()
-            }
-            for k, v in results["per_class_metrics"].items()
-        },
-        "inference_time": results["inference_time"],
-        "num_images": results["num_images"],
-        "avg_inference_time_ms": (results["inference_time"] / results["num_images"]) * 1000,
-        "fps": results["num_images"] / results["inference_time"],
-    }
+    gt_anns: list[dict] = []
+    dt_anns: list[dict] = []
+    images: list[dict] = []
+    ann_id = 1
 
-    with open(metrics_path, "w") as f:
-        json.dump(metrics_data, f, indent=2)
-
-    print(f"\n✓ Metrics saved to {metrics_path}")
-
-    # Save predictions if requested
-    if save_predictions:
-        predictions_path = output_dir / "predictions.json"
-        predictions_data = []
-
-        for _, (pred, target) in enumerate(zip(results["predictions"], results["targets"])):
-            predictions_data.append(
+    for img_id, (pred, tgt) in enumerate(zip(predictions, targets)):
+        images.append({"id": img_id})
+        for box, label in zip(tgt["boxes"].cpu().numpy(), tgt["labels"].cpu().numpy()):
+            x1, y1, x2, y2 = box
+            gt_anns.append(
                 {
-                    "image_id": int(target["image_id"][0]),
-                    "predictions": {
-                        "boxes": pred["boxes"].cpu().numpy().tolist(),
-                        "labels": pred["labels"].cpu().numpy().tolist(),
-                        "scores": pred["scores"].cpu().numpy().tolist(),
-                    },
-                    "ground_truth": {
-                        "boxes": target["boxes"].cpu().numpy().tolist(),
-                        "labels": target["labels"].cpu().numpy().tolist(),
-                    },
+                    "id": ann_id,
+                    "image_id": img_id,
+                    "category_id": int(label),
+                    "iscrowd": 0,
+                    "bbox": [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                    "area": float((x2 - x1) * (y2 - y1)),
+                }
+            )
+            ann_id += 1
+
+        boxes = pred.get("boxes", torch.zeros(0, 4)).cpu().numpy()
+        scores = pred.get("scores", torch.zeros(0)).cpu().numpy()
+        labels = pred.get("labels", torch.zeros(0, dtype=torch.long)).cpu().numpy()
+        for box, score, label in zip(boxes, scores, labels):
+            x1, y1, x2, y2 = box
+            dt_anns.append(
+                {
+                    "image_id": img_id,
+                    "category_id": int(label),
+                    "bbox": [float(x1), float(y1), float(x2 - x1), float(y2 - y1)],
+                    "score": float(score),
                 }
             )
 
-        with open(predictions_path, "w") as f:
-            json.dump(predictions_data, f, indent=2)
+    cats = [{"id": i, "name": n} for i, n in enumerate(VISDRONE_CLASSES)]
+    coco_gt = COCO()
+    coco_gt.dataset = {"images": images, "annotations": gt_anns, "categories": cats}
+    coco_gt.createIndex()
 
-        print(f"✓ Predictions saved to {predictions_path}")
+    if not dt_anns:
+        return 0.0, 0.0
+
+    coco_dt = coco_gt.loadRes(dt_anns)
+    ev = COCOeval(coco_gt, coco_dt, "bbox")
+    ev.evaluate()
+    ev.accumulate()
+    ev.summarize()
+    return float(ev.stats[1]), float(ev.stats[0])  # AP@0.5, AP@0.5:0.95
 
 
-def main():
+def _save_json(predictions: list[dict], targets: list[dict], path: Path) -> None:
+    """Save predictions to JSON."""
+    data = []
+    for i, (p, t) in enumerate(zip(predictions, targets)):
+        data.append(
+            {
+                "image_id": i,
+                "predictions": {
+                    "boxes": p.get("boxes", torch.zeros(0, 4)).cpu().numpy().tolist(),
+                    "labels": p.get("labels", torch.zeros(0)).cpu().numpy().tolist(),
+                    "scores": p.get("scores", torch.zeros(0)).cpu().numpy().tolist(),
+                },
+                "ground_truth": {
+                    "boxes": t["boxes"].cpu().numpy().tolist(),
+                    "labels": t["labels"].cpu().numpy().tolist(),
+                },
+            }
+        )
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    console.print(f"  ✓ Predictions saved to {path}")
+
+
+# ---------------------------------------------------------------------------
+# Table printing
+# ---------------------------------------------------------------------------
+
+
+def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
+    """Print a rich table of evaluation results."""
+    console.rule(f"[bold]Evaluation Results — {model_name}[/bold]")
+
+    # Summary table
+    summary = Table(title="Summary", show_header=True, header_style="bold magenta")
+    summary.add_column("Metric", style="cyan")
+    summary.add_column("Value", justify="right")
+
+    def fmt(v: Any) -> str:
+        if v is None:
+            return "[dim]N/A[/dim]"
+        if isinstance(v, float):
+            return f"{v:.4f}"
+        return str(v)
+
+    for key in ("mAP50", "mAP50_95", "precision", "recall", "f1"):
+        if key in metrics:
+            label = {"mAP50_95": "mAP@0.5:0.95", "mAP50": "mAP@0.5"}.get(key, key.title())
+            summary.add_row(label, fmt(metrics[key]))
+    for key in ("fps", "avg_ms", "num_images"):
+        if key in metrics:
+            label = {"fps": "FPS", "avg_ms": "ms/image", "num_images": "Images"}.get(key, key)
+            summary.add_row(label, fmt(metrics[key]))
+
+    console.print(summary)
+
+    # Per-class table
+    per_class = metrics.get("per_class", {})
+    if per_class:
+        cls_table = Table(title="Per-Class Metrics", show_header=True, header_style="bold cyan")
+        cls_table.add_column("Class", style="white")
+        has_map = any("mAP50" in v for v in per_class.values())
+        if has_map:
+            cls_table.add_column("mAP@0.5", justify="right")
+            cls_table.add_column("mAP@0.5:0.95", justify="right")
+        else:
+            cls_table.add_column("Precision", justify="right")
+            cls_table.add_column("Recall", justify="right")
+            cls_table.add_column("F1", justify="right")
+
+        for cls_name, cls_m in sorted(per_class.items()):
+            if has_map:
+                cls_table.add_row(
+                    cls_name,
+                    f"{cls_m.get('mAP50', 0):.4f}",
+                    f"{cls_m.get('mAP50_95', 0):.4f}",
+                )
+            else:
+                cls_table.add_row(
+                    cls_name,
+                    f"{cls_m.get('precision', 0):.4f}",
+                    f"{cls_m.get('recall', 0):.4f}",
+                    f"{cls_m.get('f1', 0):.4f}",
+                )
+
+        console.print(cls_table)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
     args = parse_args()
-
-    # Set device
-    device = torch.device(args.device)
-    print(f"Using device: {device}")
-
-    # Load dataset
-    print("\nLoading dataset...")
-    dataset = VisDroneDataset(
-        image_dir=args.image_dir,
-        annotation_dir=args.annotation_dir,
-        filter_ignored=True,
-        filter_crowd=True,
-    )
-
-    data_loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        collate_fn=collate_fn,
-        pin_memory=device.type == "cuda",
-    )
-
-    # Load model
-    model = load_model(
-        args.checkpoint, args.model, args.num_classes, device, lower_threshold=args.lower_threshold
-    )
-
-    # Evaluate
-    results = evaluate_model(
-        model,
-        data_loader,
-        device,
-        args.score_threshold,
-        args.iou_threshold,
-        use_tta=args.tta,
-        use_soft_nms=args.soft_nms,
-    )
-
-    # Save results
     output_dir = Path(args.output_dir)
-    save_results(results, output_dir, args.save_predictions)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n{'=' * 60}")
-    print("Evaluation completed!")
-    print(f"{'=' * 60}")
+    device_str = args.device
+    device = torch.device(device_str)
+
+    console.print("\n[bold green]VisDrone Evaluation[/bold green]")
+    console.print(f"  Model: [bold]{args.model}[/bold]")
+    console.print(f"  Checkpoint: {args.checkpoint}")
+    console.print(f"  Device: {device}\n")
+
+    if _is_yolo_model(args.model):
+        metrics = evaluate_yolo(
+            checkpoint_path=args.checkpoint,
+            image_dir=args.image_dir,
+            annotation_dir=args.annotation_dir,
+            num_classes=args.num_classes,
+            device=device_str,
+            output_dir=output_dir,
+        )
+    else:
+        model = load_torchvision_model(
+            checkpoint_path=args.checkpoint,
+            model_name=args.model,
+            num_classes=args.num_classes,
+            device=device,
+        )
+        metrics = evaluate_torchvision(
+            model=model,
+            image_dir=args.image_dir,
+            annotation_dir=args.annotation_dir,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            device=device,
+            score_threshold=args.score_threshold,
+            iou_threshold=args.iou_threshold,
+            use_soft_nms=args.soft_nms,
+            output_dir=output_dir,
+            save_predictions=args.save_predictions,
+        )
+
+    print_metrics_table(args.model, metrics)
+
+    # Save JSON summary
+    metrics_path = output_dir / "metrics.json"
+    serializable = {
+        k: (float(v) if isinstance(v, (float, np.floating)) else v)
+        for k, v in metrics.items()
+        if k != "per_class"
+    }
+    if "per_class" in metrics:
+        serializable["per_class"] = {
+            cls: {mk: float(mv) for mk, mv in mv_dict.items()}
+            for cls, mv_dict in metrics["per_class"].items()
+        }
+    with open(metrics_path, "w") as f:
+        json.dump(serializable, f, indent=2)
+    console.print(f"\n✓ Metrics saved to [bold]{metrics_path}[/bold]")
 
 
 if __name__ == "__main__":

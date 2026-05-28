@@ -1,4 +1,3 @@
-
 ---
 
 ## 🚀 YOLO v8+ Support (NEW)
@@ -29,6 +28,7 @@ trainer.train(dataset, dataset, epochs=100, batch_size=16)
 ### Available Models
 
 **YOLO v8 (5 variants):**
+
 - `yolov8n` - Nano (fastest, smallest)
 - `yolov8s` - Small
 - `yolov8m` - Medium
@@ -36,10 +36,12 @@ trainer.train(dataset, dataset, epochs=100, batch_size=16)
 - `yolov8x` - XLarge (highest accuracy)
 
 **YOLO v9 (2 variants):**
+
 - `yolov9c` - Compact
 - `yolov9m` - Medium
 
 **YOLO v10 (5 variants):**
+
 - `yolov10n` - Nano
 - `yolov10s` - Small
 - `yolov10m` - Medium
@@ -47,6 +49,7 @@ trainer.train(dataset, dataset, epochs=100, batch_size=16)
 - `yolov10x` - XLarge
 
 **Torchvision (still supported):**
+
 - `fasterrcnn_resnet50_fpn`
 - `fasterrcnn_mobilenetv3_large_320_fpn`
 - `fcos_resnet50_fpn`
@@ -62,11 +65,10 @@ trainer.train(dataset, dataset, epochs=100, batch_size=16)
 
 ### Performance
 
-| Model | Speed | Accuracy | Memory |
-|-------|-------|----------|--------|
-| YOLOv8n | 280 FPS | 86.5 mAP | 1.5 GB |
-| YOLOv8m | 90 FPS | 90.1 mAP | 4.0 GB |
-| FasterRCNN | 45 FPS | 88.3 mAP | 3.5 GB |
+| Model      | Speed   | Accuracy | Memory |
+| ---------- | ------- | -------- | ------ |
+| YOLOv8n    | 280 FPS | 86.5 mAP | 1.5 GB |
+| YOLOv8m    | 90 FPS  | 90.1 mAP | 4.0 GB |
+| FasterRCNN | 45 FPS  | 88.3 mAP | 3.5 GB |
 
 For detailed documentation, see [YOLO_DETR_IMPLEMENTATION.md](YOLO_DETR_IMPLEMENTATION.md).
-

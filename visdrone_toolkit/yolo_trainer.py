@@ -127,8 +127,8 @@ class YOLOTrainer:
         Returns:
             dict with keys: 'results', 'model_path', 'output_dir'
         """
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = Path(output_dir).resolve()  # must be absolute so Ultralytics
+        output_dir.mkdir(parents=True, exist_ok=True)  # doesn't prefix runs/detect/
 
         with tempfile.TemporaryDirectory(prefix="visdrone_yolo_") as tmp:
             tmp_path = Path(tmp)

@@ -146,11 +146,14 @@ class UnifiedTrainer:
                 # Save best model
                 if "f1" in val_metrics and val_metrics["f1"] > self.best_metric:
                     self.best_metric = val_metrics["f1"]
-                    self._save_checkpoint(output_dir / "best_model.pt", optimizer)
+                    self._save_checkpoint(output_dir / "best.pt", optimizer)
 
             # Save periodic checkpoint
             if (epoch + 1) % save_every == 0:
                 self._save_checkpoint(output_dir / f"checkpoint_epoch_{epoch + 1}.pt", optimizer)
+
+            # Always overwrite last.pt so the latest epoch is always accessible
+            self._save_checkpoint(output_dir / "last.pt", optimizer)
 
             # Log progress
             log_msg = f"Epoch [{epoch + 1}/{epochs}] Loss: {epoch_loss:.4f}"

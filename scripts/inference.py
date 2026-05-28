@@ -50,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint / .pt file")
     parser.add_argument("--model", default="fasterrcnn_resnet50", help="Model name")
     parser.add_argument("--num-classes", type=int, default=12, help="Number of classes")
+    parser.add_argument("--imgsz", type=int, default=1280, help="Inference image size (YOLO only)")
 
     # Input  (images / directory / video file)
     parser.add_argument("--input", required=True, help="Input image, directory, or video file")
@@ -83,6 +84,7 @@ def run_yolo(
     output_dir: Path,
     score_threshold: float,
     device: str,
+    imgsz: int,
     show: bool,
 ) -> None:
     """Run YOLO inference with custom visualization."""
@@ -101,7 +103,7 @@ def run_yolo(
         source=str(input_path),
         conf=score_threshold,
         device=device,
-        imgsz=1280,
+        imgsz=imgsz,
         save=False,
         verbose=True,
     )
@@ -451,6 +453,7 @@ def main() -> None:
             output_dir=output_dir,
             score_threshold=args.score_threshold,
             device=args.device,
+            imgsz=args.imgsz,
             show=args.show,
         )
         return

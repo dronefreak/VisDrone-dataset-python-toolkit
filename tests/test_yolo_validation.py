@@ -26,7 +26,7 @@ class TestYOLOModelInstantiation:
     )
     def test_yolo_model_creation(self, model_name):
         """Test creating YOLO models from registry."""
-        model = get_model(model_name, num_classes=12, pretrained=False)
+        model = get_model(model_name, num_classes=12, pretrained=False, device="cpu")
         assert model is not None
         assert hasattr(model, "forward")
         assert model.num_classes == 12
@@ -35,7 +35,7 @@ class TestYOLOModelInstantiation:
 
     def test_yolo_model_inference_shape(self):
         """Test YOLO model produces correct output shape."""
-        model = get_model("yolov8n", num_classes=12, pretrained=False)
+        model = get_model("yolov8n", num_classes=12, pretrained=False, device="cpu")
         model.eval()
 
         # Just verify model structure, don't actually run inference
@@ -59,7 +59,7 @@ class TestYOLOTrainingAdapter:
 
     def test_yolo_training_adapter_selection(self):
         """Test that YOLO models select YOLOTrainingAdapter."""
-        model = get_model("yolov8n", num_classes=12, pretrained=False)
+        model = get_model("yolov8n", num_classes=12, pretrained=False, device="cpu")
         trainer = UnifiedTrainer(model, device="cpu")
 
         # Check adapter type

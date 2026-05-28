@@ -48,6 +48,7 @@ def get_model(
     model_name: str = "fasterrcnn_resnet50",
     num_classes: int = NUM_CLASSES,
     pretrained: bool = True,
+    device: str | torch.device = "cuda",
     trainable_backbone_layers: int | None = None,
     **kwargs,
 ) -> Any | torch.nn.Module:
@@ -77,7 +78,7 @@ def get_model(
     # Try ModelRegistry first (YOLO, DETR, future models)
     try:
         return ModelRegistry.get(
-            model_name, num_classes=num_classes, pretrained=pretrained, **kwargs
+            model_name, num_classes=num_classes, pretrained=pretrained, device=device, **kwargs
         )
     except ValueError:
         pass

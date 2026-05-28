@@ -1,4 +1,4 @@
-"""
+r"""
 Evaluation script for VisDrone object detection models.
 
 Computes standard object detection metrics on validation/test sets.
@@ -521,7 +521,7 @@ def main() -> None:
 
     # Save JSON summary
     metrics_path = output_dir / "metrics.json"
-    serializable = {
+    serializable: dict[str, Any] = {
         k: (float(v) if isinstance(v, (float, np.floating)) else v)
         for k, v in metrics.items()
         if k != "per_class"

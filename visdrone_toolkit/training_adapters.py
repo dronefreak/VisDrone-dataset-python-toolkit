@@ -283,8 +283,8 @@ class DETRTrainingAdapter(TrainingAdapter):
         # For now, convert basic DETR output to standard format
         predictions = []
 
-        pred_logits = outputs.get("pred_logits", None)
-        pred_boxes = outputs.get("pred_boxes", None)
+        pred_logits = outputs.get("pred_logits")
+        pred_boxes = outputs.get("pred_boxes")
 
         if pred_logits is None or pred_boxes is None:
             return []

@@ -34,7 +34,7 @@ import cv2
 import numpy as np
 import torch
 
-from visdrone_toolkit.utils import VISDRONE_CLASSES, get_model
+from visdrone_toolkit.utils import YOLO_CLASSES, get_model
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 _VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
@@ -104,7 +104,7 @@ def run_yolo(
         conf=score_threshold,
         device=device,
         imgsz=imgsz,
-        save=False,
+        save=True,
         verbose=True,
     )
 
@@ -127,7 +127,7 @@ def run_yolo(
             boxes,
             scores,
             labels,
-            VISDRONE_CLASSES,
+            YOLO_CLASSES,
         )
 
         # Save
@@ -337,14 +337,14 @@ def run_torchvision_images(
 
         if save_viz:
             viz = draw_detections(
-                frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+                frame, result["boxes"], result["scores"], result["labels"], YOLO_CLASSES
             )
             out_path = output_dir / f"{image_path.stem}_pred.jpg"
             cv2.imwrite(str(out_path), viz)
 
         if show:
             viz = draw_detections(
-                frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+                frame, result["boxes"], result["scores"], result["labels"], YOLO_CLASSES
             )
             cv2.imshow("VisDrone Inference", viz)
             if cv2.waitKey(0) == ord("q"):
@@ -401,7 +401,7 @@ def run_torchvision_video(
         total_det += len(result["boxes"])
 
         viz = draw_detections(
-            frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+            frame, result["boxes"], result["scores"], result["labels"], YOLO_CLASSES
         )
 
         if writer is not None:

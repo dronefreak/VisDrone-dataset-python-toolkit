@@ -40,6 +40,21 @@ VISDRONE_CLASSES = [
     "others",  # 11
 ]
 
+# YOLO class names (exclude "ignored-regions" since YOLO doesn't support ignore labels)
+YOLO_CLASSES = [
+    "pedestrian",
+    "people",
+    "bicycle",
+    "car",
+    "van",
+    "truck",
+    "tricycle",
+    "awning-tricycle",
+    "bus",
+    "motor",
+    "others",
+]
+
 # Number of classes (excluding background for torchvision models)
 NUM_CLASSES = len(VISDRONE_CLASSES)
 

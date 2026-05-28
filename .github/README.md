@@ -214,7 +214,10 @@ See [INSTALL.md](INSTALL.md) for detailed setup instructions.
 ### Training
 
 ```bash
-# Optimized training for best results (200 epochs, ~40 hours on RTX 4070 Super)
+# List all available models (torchvision + YOLO)
+python scripts/train.py --available-models
+
+# Optimized training with FasterRCNN (200 epochs, ~40 hours on RTX 4070 Super)
 python scripts/train.py \
     --train-img-dir data/VisDrone2019-DET-train/images \
     --train-ann-dir data/VisDrone2019-DET-train/annotations \
@@ -233,7 +236,23 @@ python scripts/train.py \
     --lr-milestones 60 80 \
     --output-dir outputs/fasterrcnn_200ep
 
-# Fast training for experimentation (50 epochs)
+# Training with YOLO v8+ (faster, lighter, recommended for new experiments)
+python scripts/train.py \
+    --train-img-dir data/VisDrone2019-DET-train/images \
+    --train-ann-dir data/VisDrone2019-DET-train/annotations \
+    --val-img-dir data/VisDrone2019-DET-val/images \
+    --val-ann-dir data/VisDrone2019-DET-val/annotations \
+    --model yolov8n \
+    --epochs 200 \
+    --batch-size 16 \
+    --accumulation-steps 2 \
+    --lr 0.001 \
+    --amp \
+    --augmentation \
+    --lr-schedule cosine \
+    --output-dir outputs/yolov8n_200ep
+
+# Fast training for experimentation (50 epochs, MobileNet)
 python scripts/train.py \
     --train-img-dir data/VisDrone2019-DET-train/images \
     --train-ann-dir data/VisDrone2019-DET-train/annotations \
@@ -249,14 +268,32 @@ python scripts/train.py \
     --epochs 200
 ```
 
+**Available Models:**
+
+| Model                                                     | Type        | Speed    | Notes                      |
+| --------------------------------------------------------- | ----------- | -------- | -------------------------- |
+| `fasterrcnn_resnet50`                                     | Torchvision | ~45 FPS  | Best accuracy, high VRAM   |
+| `fasterrcnn_mobilenet`                                    | Torchvision | ~80 FPS  | Lightweight, fast          |
+| `fcos_resnet50`                                           | Torchvision | ~55 FPS  | Anchor-free                |
+| `retinanet_resnet50`                                      | Torchvision | ~65 FPS  | Good for small objects     |
+| `yolov8n`                                                 | YOLO v8     | ~280 FPS | Fastest v8, 1.5 GB VRAM    |
+| `yolov8s` / `yolov8m` / `yolov8l` / `yolov8x`             | YOLO v8     | varies   | Larger = more accurate     |
+| `yolov9c` / `yolov9e` / `yolov9m`                         | YOLO v9     | varies   | Programmable gradient nets |
+| `yolov10n` ... `yolov10x`                                 | YOLO v10    | varies   | NMS-free inference         |
+| `yolo11n` / `yolo11s` / `yolo11m` / `yolo11l` / `yolo11x` | YOLO11      | varies   | 2024 C3k2+C2PSA arch       |
+| `yolo26n` / `yolo26s` / `yolo26m` / `yolo26l` / `yolo26x` | YOLO26      | varies   | 2025, best efficiency      |
+
 **Key Training Arguments:**
 
+- `--available-models` - List all registered models and exit
 - `--augmentation` - Enable data augmentation (flips, rotations, color)
-- `--multiscale` - Random image scaling 600-800px
-- `--small-anchors` - Use 16-256px anchors (vs default 32-512px)
+- `--multiscale` - Random image scaling 600-800px (torchvision only)
+- `--small-anchors` - Use 16-256px anchors (torchvision only)
 - `--accumulation-steps` - Simulate larger batch (2 steps = 2x batch size)
-- `--lr-schedule multistep` - Drop LR at specified milestones
+- `--lr-schedule cosine|multistep|step` - LR schedule type
 - `--amp` - Mixed precision training (2x speedup)
+
+> **Note for YOLO models:** `--multiscale`, `--small-anchors`, `--lr-schedule`, and `--accumulation-steps` are ignored — YOLO v8+ is anchor-free and these are handled internally by Ultralytics. Use `--batch-size 16` or higher (YOLO is much more memory-efficient than FasterRCNN). `--num-classes` is automatically clamped to 11 for YOLO (VisDrone's 11 real classes after filtering the ignored-regions label).
 
 ### Inference
 
@@ -591,7 +628,8 @@ Apache License 2.0 — see [LICENSE](LICENSE)
 - [ ] Weights & Biases integration
 - [ ] TensorRT optimization
 - [ ] Docker deployment
-- [ ] DETR and YOLOv8 architectures
+- [x] YOLO v8, v9, v10, YOLO11, YOLO26 architectures (29 variants)
+- [ ] DETR architecture
 - [ ] Mobile deployment guide
 
 ---

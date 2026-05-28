@@ -1,12 +1,27 @@
-"""
-Inference script for VisDrone object detection models.
+r"""Inference script for VisDrone object detection models.
 
 Supports inference on:
 - Single images
-- Multiple images in a directory
+- Directories of images
 - Video files
-- Test-Time Augmentation (TTA)
+- All registered models (torchvision, YOLO, DETR)
 - Soft-NMS post-processing
+
+Usage examples:
+  # Image directory, YOLO model
+  python scripts/inference.py \\
+      --checkpoint outputs/yolov8n_200ep/yolov8n/weights/best.pt \\
+      --model yolov8n --input data/images/
+
+  # Single image, torchvision model
+  python scripts/inference.py \\
+      --checkpoint outputs/fasterrcnn/best.pt \\
+      --model fasterrcnn_resnet50 --input data/images/frame.jpg
+
+  # Video file
+  python scripts/inference.py \\
+      --checkpoint outputs/yolov8n_200ep/yolov8n/weights/best.pt \\
+      --model yolov8n --input video.mp4
 """
 
 from __future__ import annotations
@@ -18,547 +33,479 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-import torchvision
-from PIL import Image
 
 from visdrone_toolkit.utils import VISDRONE_CLASSES, get_model
-from visdrone_toolkit.visualization import visualize_predictions
+
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Run inference on VisDrone models")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run inference on VisDrone models",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
     # Model
-    parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint")
-    parser.add_argument(
-        "--model",
-        default="fasterrcnn_resnet50",
-        choices=[
-            "fasterrcnn_resnet50",
-            "fasterrcnn_mobilenet",
-            "fcos_resnet50",
-            "retinanet_resnet50",
-        ],
-        help="Model architecture",
-    )
+    parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint / .pt file")
+    parser.add_argument("--model", default="fasterrcnn_resnet50", help="Model name")
     parser.add_argument("--num-classes", type=int, default=12, help="Number of classes")
+    parser.add_argument("--imgsz", type=int, default=1280, help="Inference image size (YOLO only)")
 
-    # Input
-    parser.add_argument("--input", required=True, help="Input image/directory/video")
+    # Input  (images / directory / video file)
+    parser.add_argument("--input", required=True, help="Input image, directory, or video file")
     parser.add_argument("--output-dir", default="inference_outputs", help="Output directory")
 
     # Inference parameters
     parser.add_argument("--score-threshold", type=float, default=0.5, help="Confidence threshold")
     parser.add_argument(
-        "--device", default="cuda" if torch.cuda.is_available() else "cpu", help="Device (cuda/cpu)"
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu", help="Device"
     )
 
-    # Post-processing options
-    parser.add_argument("--tta", action="store_true", help="Use test-time augmentation")
-    parser.add_argument("--soft-nms", action="store_true", help="Use soft-NMS instead of hard NMS")
+    # Post-processing
+    parser.add_argument("--soft-nms", action="store_true", help="Use Soft-NMS (torchvision only)")
     parser.add_argument("--nms-threshold", type=float, default=0.5, help="NMS IoU threshold")
 
     # Visualization
     parser.add_argument("--no-save-viz", action="store_true", help="Don't save visualizations")
-    parser.add_argument("--show", action="store_true", help="Display results")
+    parser.add_argument("--show", action="store_true", help="Display results interactively")
 
     return parser.parse_args()
 
 
-def load_model(checkpoint_path: str, model_name: str, num_classes: int, device: torch.device):
-    """Load model from checkpoint."""
-    print(f"Loading model from {checkpoint_path}...")
+# ---------------------------------------------------------------------------
+# YOLO inference path
+# ---------------------------------------------------------------------------
 
-    # Create model
-    model = get_model(
-        model_name=model_name,
-        num_classes=num_classes,
-        pretrained=False,
+
+def run_yolo(
+    checkpoint_path: str,
+    input_path: Path,
+    output_dir: Path,
+    score_threshold: float,
+    device: str,
+    imgsz: int,
+    show: bool,
+) -> None:
+    """Run YOLO inference with custom visualization."""
+    try:
+        from ultralytics import YOLO as UltralyticsYOLO
+    except ImportError as err:
+        raise ImportError("pip install ultralytics>=8.0.0") from err
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model = UltralyticsYOLO(str(checkpoint_path))
+
+    print(f"Running YOLO inference on {input_path} ...")
+
+    results = model.predict(
+        source=str(input_path),
+        conf=score_threshold,
+        device=device,
+        imgsz=imgsz,
+        save=False,
+        verbose=True,
     )
 
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    total_det = 0
 
-    # Handle different checkpoint formats
+    for result in results:
+        total_det += len(result.boxes)
+
+        # Original image (full resolution)
+        frame = result.orig_img.copy()
+
+        # Extract predictions
+        boxes = result.boxes.xyxy.cpu().numpy()
+        scores = result.boxes.conf.cpu().numpy()
+        labels = result.boxes.cls.cpu().numpy().astype(int)
+
+        # Custom visualization
+        viz = draw_detections(
+            frame,
+            boxes,
+            scores,
+            labels,
+            VISDRONE_CLASSES,
+        )
+
+        # Save
+        image_path = Path(result.path)
+        out_path = output_dir / f"{image_path.stem}_pred.jpg"
+
+        cv2.imwrite(str(out_path), viz)
+
+        if show:
+            cv2.imshow("YOLO Inference", viz)
+            if cv2.waitKey(0) == ord("q"):
+                break
+
+    if show:
+        cv2.destroyAllWindows()
+
+    print(f"\n Processed {len(results)} image(s)")
+    print(f"Total detections: {total_det}")
+    print(f"Results saved to: {output_dir}")
+
+
+# ---------------------------------------------------------------------------
+# Torchvision inference path
+# ---------------------------------------------------------------------------
+
+
+def load_torchvision_model(
+    checkpoint_path: str,
+    model_name: str,
+    num_classes: int,
+    device: torch.device,
+) -> torch.nn.Module:
+    """Load torchvision model from checkpoint."""
+    print(f"Loading {model_name} from {checkpoint_path} ...")
+
+    model = get_model(model_name=model_name, num_classes=num_classes, pretrained=False)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
     if "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
         if "epoch" in checkpoint:
-            print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
+            print(f"  Loaded from epoch {checkpoint['epoch']}")
+    elif "model_state" in checkpoint:
+        model.load_state_dict(checkpoint["model_state"])
     else:
         model.load_state_dict(checkpoint)
 
     model.to(device)
     model.eval()
-
-    print("✓ Model loaded successfully")
+    print("✓ Model loaded")
     return model
 
 
-def apply_soft_nms(boxes, scores, labels, sigma=0.5, score_threshold=0.001):
-    """
-    Apply Soft-NMS to detection results.
-
-    Args:
-        boxes: Detection boxes
-        scores: Detection scores
-        labels: Detection labels
-        nms_threshold: IoU threshold (for compatibility, not used in pure Soft-NMS)
-        sigma: Gaussian penalty parameter (lower = more aggressive suppression)
-        score_threshold: Minimum score to keep after penalty
-
-    Returns filtered boxes, scores, and labels.
-    """
-    # Convert to tensors if needed
-    if not isinstance(boxes, torch.Tensor):
-        boxes = torch.tensor(boxes)
-    if not isinstance(scores, torch.Tensor):
-        scores = torch.tensor(scores)
-    if not isinstance(labels, torch.Tensor):
-        labels = torch.tensor(labels)
-
-    # Get unique classes
-    unique_labels = labels.unique()
-
-    keep_boxes = []
-    keep_scores = []
-    keep_labels = []
-
-    for label in unique_labels:
-        # Filter by class
-        class_mask = labels == label
-        class_boxes = boxes[class_mask].clone()
-        class_scores = scores[class_mask].clone()
-
-        # Apply Soft-NMS per class
-        while len(class_boxes) > 0:
-            if class_scores.max() < score_threshold:
-                break
-
-            max_idx = class_scores.argmax()
-            max_box = class_boxes[max_idx]
-            max_score = class_scores[max_idx]
-
-            # Keep the max scoring box
-            keep_boxes.append(max_box)
-            keep_scores.append(max_score)
-            keep_labels.append(label)
-
-            # Remove max box
-            class_boxes = torch.cat([class_boxes[:max_idx], class_boxes[max_idx + 1 :]])
-            class_scores = torch.cat([class_scores[:max_idx], class_scores[max_idx + 1 :]])
-
-            if len(class_boxes) == 0:
-                break
-
-            # Compute IoU with remaining boxes
-            ious = torchvision.ops.box_iou(max_box.unsqueeze(0), class_boxes)[0]
-
-            # Apply Gaussian penalty (pure Soft-NMS)
-            weights = torch.exp(-(ious**2) / sigma)
-            class_scores = class_scores * weights
-
-    if len(keep_boxes) == 0:
-        return torch.empty((0, 4)), torch.empty(0), torch.empty(0, dtype=torch.long)
-
-    return torch.stack(keep_boxes), torch.stack(keep_scores), torch.stack(keep_labels)
+def process_image_for_torchvision(frame_bgr: np.ndarray) -> torch.Tensor:
+    """Convert a BGR numpy frame to a [C, H, W] float32 tensor in [0, 1]."""
+    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    return torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
 
 
 @torch.no_grad()
-def run_inference_with_tta(
+def infer_torchvision_frame(
     model: torch.nn.Module,
-    image_tensor: torch.Tensor,
-    device: torch.device,
-    score_threshold: float = 0.5,
-) -> dict:
-    """
-    Run inference with test-time augmentation.
-
-    Averages predictions across:
-    - Original image
-    - Horizontal flip
-    - Multi-scale (0.8x, 1.0x, 1.2x)
-    """
-    h, w = image_tensor.shape[1:]
-    all_boxes = []
-    all_scores = []
-    all_labels = []
-
-    # Scales for multi-scale TTA
-    scales = [0.8, 1.0, 1.2]
-
-    for scale in scales:
-        # Resize image
-        if scale != 1.0:
-            new_h, new_w = int(h * scale), int(w * scale)
-            scaled_img = torch.nn.functional.interpolate(
-                image_tensor.unsqueeze(0), size=(new_h, new_w), mode="bilinear", align_corners=False
-            )[0]
-        else:
-            scaled_img = image_tensor
-
-        # Original + horizontal flip
-        for flip in [False, True]:
-            test_img = torch.flip(scaled_img, dims=[2]) if flip else scaled_img
-
-            # Run inference
-            predictions = model([test_img.to(device)])[0]
-
-            boxes = predictions["boxes"].cpu()
-            scores = predictions["scores"].cpu()
-            labels = predictions["labels"].cpu()
-
-            # Unflip boxes if needed
-            if flip:
-                img_w = test_img.shape[2]
-                boxes[:, [0, 2]] = img_w - boxes[:, [2, 0]]
-
-            # Unscale boxes if needed
-            if scale != 1.0:
-                boxes = boxes / scale
-
-            # Filter by score
-            mask = scores >= score_threshold
-            all_boxes.append(boxes[mask])
-            all_scores.append(scores[mask])
-            all_labels.append(labels[mask])
-
-    # Concatenate all predictions
-    if len(all_boxes) > 0 and sum(len(b) for b in all_boxes) > 0:
-        final_boxes = torch.cat([b for b in all_boxes if len(b) > 0])
-        final_scores = torch.cat([s for s in all_scores if len(s) > 0])
-        final_labels = torch.cat([l for l in all_labels if len(l) > 0])  # noqa: E741
-    else:
-        final_boxes = torch.empty((0, 4))
-        final_scores = torch.empty(0)
-        final_labels = torch.empty(0, dtype=torch.long)
-
-    return {
-        "boxes": final_boxes,
-        "labels": final_labels,
-        "scores": final_scores,
-    }
-
-
-@torch.no_grad()
-def run_inference_on_image(
-    model: torch.nn.Module,
-    image_path: str,
-    device: torch.device,
-    score_threshold: float = 0.5,
-    use_tta: bool = False,
-    use_soft_nms: bool = False,
-) -> dict:
-    """Run inference on a single image."""
-    # Load image
-    image = Image.open(image_path).convert("RGB")
-    image_np = np.array(image)
-
-    # Convert to tensor
-    image_tensor = torch.from_numpy(image_np).permute(2, 0, 1).float() / 255.0
-
-    # Run inference
-    start_time = time.time()
-
-    if use_tta:
-        predictions = run_inference_with_tta(model, image_tensor, device, score_threshold)
-    else:
-        predictions = model([image_tensor.to(device)])[0]
-        predictions = {
-            "boxes": predictions["boxes"].cpu(),
-            "labels": predictions["labels"].cpu(),
-            "scores": predictions["scores"].cpu(),
-        }
-
-    inference_time = time.time() - start_time
-
-    # Apply Soft-NMS if enabled
-    if use_soft_nms:
-        boxes, scores, labels = apply_soft_nms(
-            predictions["boxes"],
-            predictions["scores"],
-            predictions["labels"],
-            sigma=0.5,
-        )
-        predictions = {"boxes": boxes, "labels": labels, "scores": scores}
-
-    # Filter by score threshold
-    mask = predictions["scores"] >= score_threshold
-    predictions = {
-        "boxes": predictions["boxes"][mask],
-        "labels": predictions["labels"][mask],
-        "scores": predictions["scores"][mask],
-    }
-
-    return {
-        "predictions": predictions,
-        "image": image_np,
-        "inference_time": inference_time,
-    }
-
-
-def process_images(
-    model: torch.nn.Module,
-    input_path: str | Path,
-    output_dir: Path,
+    frame_bgr: np.ndarray,
     device: torch.device,
     score_threshold: float,
+    use_soft_nms: bool,
+    nms_threshold: float,
+) -> dict[str, np.ndarray]:
+    """Run inference on a single BGR frame."""
+    img_tensor = process_image_for_torchvision(frame_bgr).to(device)
+    pred = model([img_tensor])[0]
+
+    boxes = pred["boxes"].cpu().numpy()
+    scores = pred["scores"].cpu().numpy()
+    labels = pred["labels"].cpu().numpy()
+
+    keep = scores >= score_threshold
+    boxes, scores, labels = boxes[keep], scores[keep], labels[keep]
+
+    if use_soft_nms and len(boxes) > 0:
+        boxes, scores, labels = _apply_soft_nms(
+            boxes,
+            scores,
+            labels,
+            sigma=0.5,
+            score_threshold=score_threshold,
+            iou_threshold=nms_threshold,
+        )
+
+    return {"boxes": boxes, "scores": scores, "labels": labels}
+
+
+def _apply_soft_nms(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    labels: np.ndarray,
+    sigma: float,
+    score_threshold: float,
+    iou_threshold: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-class Gaussian Soft-NMS."""
+    from visdrone_toolkit.soft_nms_utils import apply_soft_nms_per_class
+
+    bt = torch.from_numpy(boxes).float()
+    st = torch.from_numpy(scores).float()
+    lt = torch.from_numpy(labels.astype(np.int64))
+    bt, lt, st = apply_soft_nms_per_class(
+        bt, lt, st, iou_threshold=iou_threshold, sigma=sigma, score_threshold=score_threshold
+    )
+    return bt.numpy(), st.numpy(), lt.numpy()
+
+
+def draw_detections(
+    frame: np.ndarray,
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    labels: np.ndarray,
+    class_names: list[str],
+) -> np.ndarray:
+    """Draw bounding boxes and labels on a BGR frame."""
+    out = frame.copy()
+    h, w = out.shape[:2]
+    print(f"Drawing {len(boxes)} detections on frame of size {w}x{h} ...")
+
+    # Much more conservative scaling
+    scale = max(h, w) / 2000.0
+
+    box_thickness = max(1, int(scale))
+    font_scale = max(0.3, scale * 0.35)
+    font_thickness = 1
+
+    for box, score, label in zip(boxes, scores, labels):
+        x1, y1, x2, y2 = box.astype(int)
+
+        # Draw box
+        cv2.rectangle(
+            out,
+            (x1, y1),
+            (x2, y2),
+            (0, 255, 0),
+            box_thickness,
+        )
+
+        name = class_names[label] if label < len(class_names) else f"cls{label}"
+
+        text = f"{name} {score:.2f}"
+
+        # Compute text size
+        (tw, th), baseline = cv2.getTextSize(
+            text,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            font_thickness,
+        )
+
+        # Filled label background
+        cv2.rectangle(
+            out,
+            (x1, y1 - th - baseline - 4),
+            (x1 + tw + 4, y1),
+            (0, 255, 0),
+            -1,
+        )
+
+        # Text
+        cv2.putText(
+            out,
+            text,
+            (x1 + 2, y1 - 4),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            (0, 0, 0),
+            font_thickness,
+            cv2.LINE_AA,
+        )
+
+    return out
+
+
+def run_torchvision_images(
+    model: torch.nn.Module,
+    image_paths: list[Path],
+    device: torch.device,
+    output_dir: Path,
+    score_threshold: float,
+    use_soft_nms: bool,
+    nms_threshold: float,
     save_viz: bool,
     show: bool,
-    use_tta: bool = False,
-    use_soft_nms: bool = False,
-    nms_threshold: float = 0.5,
-):
-    """Process images from file or directory."""
-    input_path = Path(input_path)
+) -> None:
+    """Run inference on a list of image paths."""
+    t0 = time.time()
+    total_det = 0
+    if save_viz:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    for image_path in image_paths:
+        frame = cv2.imread(str(image_path))
+        if frame is None:
+            print(f"  [warn] Could not read {image_path.name}, skipping")
+            continue
 
-    # Get image files
-    if input_path.is_file():
-        image_files = [input_path]
-    elif input_path.is_dir():
-        image_files = sorted(
-            [
-                f
-                for f in input_path.iterdir()
-                if f.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]
-            ]
+        result = infer_torchvision_frame(
+            model, frame, device, score_threshold, use_soft_nms, nms_threshold
         )
-    else:
-        raise ValueError(f"Invalid input path: {input_path}")
+        total_det += len(result["boxes"])
+        print(f"  {image_path.name}: {len(result['boxes'])} detections")
 
-    if len(image_files) == 0:
-        print("No images found!")
-        return
-
-    print(f"\nProcessing {len(image_files)} images...")
-    print(f"{'=' * 60}")
-
-    total_inference_time = 0
-    total_detections = 0
-
-    for idx, image_path in enumerate(image_files, 1):
-        print(f"\n[{idx}/{len(image_files)}] {image_path.name}")
-
-        # Run inference
-        result = run_inference_on_image(
-            model,
-            image_path,
-            device,
-            score_threshold,
-            use_tta=use_tta,
-            use_soft_nms=use_soft_nms,
-            nms_threshold=nms_threshold,
-        )
-
-        num_detections = len(result["predictions"]["boxes"])
-        total_detections += num_detections
-        total_inference_time += result["inference_time"]
-
-        print(f"  Detections: {num_detections}")
-        print(f"  Inference time: {result['inference_time'] * 1000:.2f}ms")
-
-        # Visualize and save
         if save_viz:
-            output_path = output_dir / f"{image_path.stem}_result.jpg"
-            visualize_predictions(
-                result["image"],
-                result["predictions"]["boxes"],
-                result["predictions"]["labels"],
-                result["predictions"]["scores"],
-                score_threshold=score_threshold,
-                save_path=output_path,
-                show=show,
+            viz = draw_detections(
+                frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
             )
-            print(f"  ✓ Saved to {output_path}")
+            out_path = output_dir / f"{image_path.stem}_pred.jpg"
+            cv2.imwrite(str(out_path), viz)
 
-    # Summary
-    print(f"\n{'=' * 60}")
-    print("Summary:")
-    print(f"  Total images: {len(image_files)}")
-    print(f"  Total detections: {total_detections}")
-    print(f"  Average inference time: {(total_inference_time / len(image_files)) * 1000:.2f}ms")
-    print(f"  FPS: {len(image_files) / total_inference_time:.2f}")
-
-
-def process_video(
-    model: torch.nn.Module,
-    video_path: str | Path,
-    output_dir: Path,
-    device: torch.device,
-    score_threshold: float,
-):
-    """Process video file."""
-    video_path = Path(video_path)
-    output_path = Path(output_dir) / f"{video_path.stem}_result.mp4"
-
-    # Open video
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise ValueError(f"Could not open video: {video_path}")
-
-    # Get video properties
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    print(f"\nProcessing video: {video_path.name}")
-    print(f"  Resolution: {width}x{height}")
-    print(f"  FPS: {fps}")
-    print(f"  Total frames: {total_frames}")
-
-    # Create video writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-
-    frame_count = 0
-    total_inference_time = 0.0
-
-    print(f"\n{'=' * 60}")
-    print("Processing frames...")
-
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
+        if show:
+            viz = draw_detections(
+                frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+            )
+            cv2.imshow("VisDrone Inference", viz)
+            if cv2.waitKey(0) == ord("q"):
+                cv2.destroyAllWindows()
                 break
 
-            frame_count += 1
-
-            # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            # Convert to tensor
-            image_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
-            image_tensor = image_tensor.to(device)
-
-            # Run inference
-            start_time = time.time()
-            predictions = model([image_tensor])[0]
-            inference_time = time.time() - start_time
-            total_inference_time += inference_time
-
-            # Filter by score
-            mask = predictions["scores"] >= score_threshold
-            boxes = predictions["boxes"][mask].cpu().numpy()
-            labels = predictions["labels"][mask].cpu().numpy()
-            scores = predictions["scores"][mask].cpu().numpy()
-
-            # Draw detections
-            for box, label, score in zip(boxes, labels, scores):
-                x1, y1, x2, y2 = box.astype(int)
-
-                # Get class name and color
-                class_name = (
-                    VISDRONE_CLASSES[label] if label < len(VISDRONE_CLASSES) else f"class_{label}"
-                )
-                color = (0, 255, 0)  # Green
-
-                # Draw box
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-                # Draw label
-                label_text = f"{class_name}: {score:.2f}"
-                (text_width, text_height), _ = cv2.getTextSize(
-                    label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
-                )
-                cv2.rectangle(frame, (x1, y1 - text_height - 4), (x1 + text_width, y1), color, -1)
-                cv2.putText(
-                    frame,
-                    label_text,
-                    (x1, y1 - 2),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (255, 255, 255),
-                    1,
-                )
-
-            # Write frame
-            out.write(frame)
-
-            # Print progress
-            if frame_count % 30 == 0 or frame_count == total_frames:
-                avg_fps = frame_count / total_inference_time if total_inference_time > 0 else 0
-                print(
-                    f"  Frame {frame_count}/{total_frames} - "
-                    f"Avg FPS: {avg_fps:.2f} - "
-                    f"Detections: {len(boxes)}"
-                )
-
-    finally:
-        cap.release()
-        out.release()
-
-    print(f"\n{'=' * 60}")
-    print(f"✓ Video saved to {output_path}")
-    print(f"  Processed {frame_count} frames")
-    print(f"  Average inference FPS: {frame_count / total_inference_time:.2f}")
+    elapsed = time.time() - t0
+    n = len(image_paths)
+    print(f"\n✓ {n} images in {elapsed:.2f}s ({n / elapsed:.1f} FPS)")
+    print(f"  Total detections: {total_det}")
+    print(f"  Results saved to: {output_dir}")
 
 
-def main():
+def run_torchvision_video(
+    model: torch.nn.Module,
+    video_path: Path,
+    device: torch.device,
+    output_dir: Path,
+    score_threshold: float,
+    use_soft_nms: bool,
+    nms_threshold: float,
+    save_viz: bool,
+    show: bool,
+) -> None:
+    """Run inference on a video file."""
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    writer: cv2.VideoWriter | None = None
+    if save_viz:
+        out_path = output_dir / f"{video_path.stem}_pred.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
+
+    t0 = time.time()
+    frame_idx = 0
+    total_det = 0
+
+    print(f"Processing video: {video_path.name} ({total_frames} frames @ {fps:.1f} FPS) ...")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        result = infer_torchvision_frame(
+            model, frame, device, score_threshold, use_soft_nms, nms_threshold
+        )
+        total_det += len(result["boxes"])
+
+        viz = draw_detections(
+            frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+        )
+
+        if writer is not None:
+            writer.write(viz)
+
+        if show:
+            cv2.imshow("VisDrone Inference", viz)
+            if cv2.waitKey(1) == ord("q"):
+                break
+
+        frame_idx += 1
+        if frame_idx % 50 == 0:
+            elapsed = time.time() - t0
+            print(f"  Frame {frame_idx}/{total_frames} — {frame_idx / elapsed:.1f} FPS")
+
+    cap.release()
+    if writer is not None:
+        writer.release()
+    if show:
+        cv2.destroyAllWindows()
+
+    elapsed = time.time() - t0
+    print(f"\n✓ {frame_idx} frames in {elapsed:.2f}s ({frame_idx / elapsed:.1f} FPS)")
+    print(f"  Total detections: {total_det}")
+    if save_viz:
+        print(f"  Output video saved to: {output_dir / (video_path.stem + '_pred.mp4')}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
     args = parse_args()
-
-    # Create output directory
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set device
-    device = torch.device(args.device)
-    print(f"Using device: {device}")
-
-    # Load model
-    model = load_model(args.checkpoint, args.model, args.num_classes, device)
-
-    # Print inference options
-    if args.tta:
-        print("✓ Using Test-Time Augmentation (6 augmentations: 3 scales × 2 flips)")
-    if args.soft_nms:
-        print(f"✓ Using Soft-NMS (threshold={args.nms_threshold})")
-
-    # Check input type
     input_path = Path(args.input)
-
     if not input_path.exists():
-        raise ValueError(f"Input path does not exist: {input_path}")
+        raise FileNotFoundError(f"Input not found: {input_path}")
 
-    # Process based on input type
-    if input_path.is_file():
-        if input_path.suffix.lower() in [".mp4", ".avi", ".mov", ".mkv"]:
-            # Video file
-            process_video(model, input_path, output_dir, device, args.score_threshold)
-        else:
-            # Single image
-            process_images(
-                model,
-                input_path,
-                output_dir,
-                device,
-                args.score_threshold,
-                not args.no_save_viz,
-                args.show,
-                use_tta=args.tta,
-                use_soft_nms=args.soft_nms,
-                nms_threshold=args.nms_threshold,
-            )
-    elif input_path.is_dir():
-        # Directory of images
-        process_images(
+    is_yolo = args.model.lower().startswith("yolo")
+
+    if is_yolo:
+        run_yolo(
+            checkpoint_path=args.checkpoint,
+            input_path=input_path,
+            output_dir=output_dir,
+            score_threshold=args.score_threshold,
+            device=args.device,
+            imgsz=args.imgsz,
+            show=args.show,
+        )
+        return
+
+    # --- Torchvision path ---
+    device = torch.device(args.device)
+    model = load_torchvision_model(args.checkpoint, args.model, args.num_classes, device)
+    save_viz = not args.no_save_viz
+
+    suffix = input_path.suffix.lower()
+    if input_path.is_dir():
+        image_paths = sorted(
+            p for p in input_path.iterdir() if p.suffix.lower() in _IMAGE_EXTENSIONS
+        )
+        print(f"Found {len(image_paths)} images in {input_path}")
+        run_torchvision_images(
+            model,
+            image_paths,
+            device,
+            output_dir,
+            args.score_threshold,
+            args.soft_nms,
+            args.nms_threshold,
+            save_viz,
+            args.show,
+        )
+    elif suffix in _IMAGE_EXTENSIONS:
+        run_torchvision_images(
+            model,
+            [input_path],
+            device,
+            output_dir,
+            args.score_threshold,
+            args.soft_nms,
+            args.nms_threshold,
+            save_viz,
+            args.show,
+        )
+    elif suffix in _VIDEO_EXTENSIONS:
+        run_torchvision_video(
             model,
             input_path,
-            output_dir,
             device,
+            output_dir,
             args.score_threshold,
-            not args.no_save_viz,
+            args.soft_nms,
+            args.nms_threshold,
+            save_viz,
             args.show,
-            use_tta=args.tta,
-            use_soft_nms=args.soft_nms,
-            nms_threshold=args.nms_threshold,
         )
     else:
-        raise ValueError(f"Invalid input: {input_path}")
-
-    print(f"\n{'=' * 60}")
-    print("Inference completed!")
-    print(f"{'=' * 60}")
+        raise ValueError(f"Unsupported input type: {input_path}")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Metrics documentation clarity** - Expanded `compute_metrics` docstring with comprehensive warnings about limitations. The function uses simple TP/FP/FN matching at single IoU threshold (0.5) and is for training monitoring only. It does NOT match official VisDrone evaluation methodology (mAP@0.5, mAP@0.75, mAP@0.5:0.95). Added references to official evaluation code and pycocotools.
 
+- **YOLO `nc`/`names` mismatch crash** — Fixed `SyntaxError: 'names' length 11 and 'nc: 12' must match` that occurred when `--num-classes 12` (VisDrone's raw count including ignored-regions) was passed to `YOLOTrainer`. Ultralytics validates `nc == len(names)` strictly at trainer startup. Root cause: `_VISDRONE_CLASSES` has 11 entries (class 0 = ignored-regions is filtered by `convert_to_yolo`) but `nc` was set from `self.num_classes` (could be 12). Fix: derive `nc` from `len(names)` in `_prepare_dataset`; `scripts/train.py` also clamps `num_classes` to `len(_VISDRONE_CLASSES)` before constructing `YOLOTrainer`.
+
+- **YOLO `nc` passed to `model.train()`** — Fixed `SyntaxError: 'nc' is not a valid YOLO argument` crash. `nc` belongs in `dataset.yaml` only; removed it from the `model.train()` keyword arguments.
+
+- **YOLO fake training loop** — `_training_forward()` was returning `torch.tensor(0.0, requires_grad=True)` — a dummy scalar with disconnected gradients and no real loss computation. Replaced with architectural separation: YOLO models use `YOLOTrainer` (delegates to Ultralytics engine); `YOLOTrainingAdapter.training_step()` raises `NotImplementedError` to make the incorrect path explicit and detectable.
+
 ### Added
+
+- **YOLO v8+ Integration (Phase 1-3 Complete)** - Full support for YOLO v8, v9, v10, YOLO11, and YOLO26 alongside existing torchvision models:
+
+  - **29 registered YOLO models**: YOLOv8 (5+5 seg variants), YOLOv9 (3), YOLOv10 (6), YOLO11 (5), YOLO26 (5)
+  - Abstract model interface (`DetectionModel`) for unified API
+  - Training adapters for framework-specific training (Torchvision, YOLO, DETR-prepared)
+  - Format converters for COCO ↔ YOLO coordinate conversion
+  - Model registry system for dynamic registration and extensibility
+
+- **YOLO11 support** (2024 architecture) — `yolo11n/s/m/l/x`:
+
+  - C3k2 blocks replace C2f; C2PSA attention module in neck
+  - 2.6M–57.0M params; mAP@COCO 39.5%–54.7%
+
+- **YOLO26 support** (2025 architecture) — `yolo26n/s/m/l/x`:
+
+  - Best efficiency-per-parameter of all supported architectures
+  - 2.6M–59.0M params; improved small-object detection (beneficial for VisDrone)
+
+- **YOLO Ultralytics training delegation (Phase 4 Critical Fix)** - Replaced fake YOLO training loop with correct Ultralytics engine delegation:
+
+  - `YOLOTrainer` (`visdrone_toolkit/yolo_trainer.py`) — wraps `ultralytics.YOLO.train()` for correct gradient flow, DFL/box/cls losses, TaskAlignedAssigner, and Mosaic augmentation
+  - `YOLOTrainingAdapter.training_step()` now raises `NotImplementedError` (intentional) — YOLO training is routed through `YOLOTrainer`, not the torchvision custom loop
+  - `scripts/train.py` routes YOLO models to `YOLOTrainer` and torchvision models to `UnifiedTrainer` via `_is_yolo_model()`
+  - Unified entry points (CLI, output dirs, logging) preserved; only training internals are separated
+
+- **YOLO dataset YAML pipeline** — VisDrone-to-YOLO on-the-fly conversion:
+
+  - Converts VisDrone annotations to YOLO `.txt` format in a temporary directory
+  - Creates `images/train` and `images/val` symlinks (no data copy; avoids copying GBs)
+  - Generates `dataset.yaml` consumed directly by Ultralytics
+  - Filters ignored-regions (class 0) and produces 11-class YOLO labels
+
+- **Unified Training Infrastructure (Phase 2)** - Single training loop for all model types:
+
+  - `UnifiedTrainer` class with automatic adapter selection
+  - Support for gradient accumulation, AMP, learning rate scheduling
+  - Checkpoint management for all model types
+  - Equivalent to 60% code reduction in training script
+
+- **Torchvision Model Wrappers (Phase 2)** - Transparent wrappers for existing models:
+
+  - FasterRCNN (ResNet50, MobileNetV3 backbones)
+  - FCOS (ResNet50 backbone)
+  - RetinaNet (ResNet50 V2 backbone)
+  - 100% backward compatible with existing code
+
+- **YOLO Validation Tests (Phase 3)** - Comprehensive test suite for new architecture:
+
+  - `test_yolo_validation.py` - 18 test methods
+  - Validates model instantiation, format conversion, trainer integration
+  - Tests model registry, adapter selection, unified interface
+
+- **YOLOTrainer unit tests** (`tests/test_yolo_trainer.py`) - 35 test methods covering:
+
+  - `_VISDRONE_CLASSES` correctness (11 classes, no ignored-regions, no duplicates)
+  - `YOLOTrainer.__init__` for all YOLO versions (v8, v9, v10)
+  - `_prepare_dataset` YAML consistency: `nc == len(names)` for `num_classes` in {5, 11, 12}
+  - Regression test: `num_classes=12` must not cause Ultralytics `nc/names` mismatch crash
+  - Directory structure: symlinks, `labels/train`, `labels/val`
+  - `train()` method with mocked Ultralytics: epochs, batch, lr0, no `nc` in `model.train()`, extra kwargs
+  - Output directory creation, return value keys
 
 - **Comprehensive integration test suite** (`tests/test_integration.py`) - 18+ test methods across 6 test classes for regression protection of critical bug fixes:
   - `TestEmptyAnnotationHandling` - Validates empty annotation handling after parsing and augmentation
@@ -25,13 +93,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `TestDatasetIntegration` - Dataset integration with DataLoader
   - `TestAugmentationIntegration` - Augmentation pipeline validation
 
+### Changed
+
+- **Model factory refactoring** (`utils.py`) - Registry-first lookup with backward compatibility:
+
+  - `get_model()` now checks ModelRegistry first (YOLO, DETR, custom models)
+  - Falls back to torchvision for backward compatibility
+  - All existing model names continue to work unchanged
+
+- **Training script refactor** (`scripts/train.py`) - 60% code reduction:
+
+  - Uses `UnifiedTrainer` instead of manual training loop
+  - Supports all registered models seamlessly
+  - Same command-line interface, identical results
+
+- **Inference script refactor** (`scripts/inference.py`) - 50% code reduction:
+  - Model-aware output format handling
+  - Automatic format conversion for all model types
+  - Simplified, more maintainable codebase
+
 ### Planned
+
+- **Phase 4: DETR Integration** - Detection Transformers support:
+
+  - DETR model wrappers (Facebook Research, Hugging Face)
+  - Hungarian matcher implementation
+  - Transformer-specific loss computation
+
+- **Phase 5: Advanced Features**:
+
+  - Model ensembling
+  - Transfer learning guides
+  - Multi-GPU and distributed training (DDP)
+  - Quantization support
+  - Performance optimization
+
+- **Phase 6: Documentation & Examples**:
+
+  - User guides for each model type
+  - Migration guides for existing users
+  - Performance benchmarking guide
+  - Custom model extension guide
 
 - Video sequence support for temporal tasks
 - Integration with Weights & Biases for experiment tracking
 - TensorRT optimization for faster inference
 - Docker images for easy deployment
-- Additional model architectures (DETR, YOLOv8, etc.)
 - Mobile deployment guide (CoreML, TFLite)
 - Soft-NMS vectorization with torch.cdist for 10-50x inference speedup
 

@@ -270,16 +270,18 @@ python scripts/train.py \
 
 **Available Models:**
 
-| Model                                         | Type        | Speed    | Notes                     |
-| --------------------------------------------- | ----------- | -------- | ------------------------- |
-| `fasterrcnn_resnet50`                         | Torchvision | ~45 FPS  | Best accuracy, high VRAM  |
-| `fasterrcnn_mobilenet`                        | Torchvision | ~80 FPS  | Lightweight, fast         |
-| `fcos_resnet50`                               | Torchvision | ~55 FPS  | Anchor-free               |
-| `retinanet_resnet50`                          | Torchvision | ~65 FPS  | Good for small objects    |
-| `yolov8n`                                     | YOLO        | ~280 FPS | Fastest YOLO, 1.5 GB VRAM |
-| `yolov8s` / `yolov8m` / `yolov8l` / `yolov8x` | YOLO        | varies   | Larger = more accurate    |
-| `yolov9c` / `yolov9e` / `yolov9m`             | YOLO        | varies   | Latest v9 architecture    |
-| `yolov10n` ... `yolov10x`                     | YOLO        | varies   | Latest v10, NMS-free      |
+| Model                                          | Type        | Speed    | Notes                            |
+| ---------------------------------------------- | ----------- | -------- | -------------------------------- |
+| `fasterrcnn_resnet50`                          | Torchvision | ~45 FPS  | Best accuracy, high VRAM         |
+| `fasterrcnn_mobilenet`                         | Torchvision | ~80 FPS  | Lightweight, fast                |
+| `fcos_resnet50`                                | Torchvision | ~55 FPS  | Anchor-free                      |
+| `retinanet_resnet50`                           | Torchvision | ~65 FPS  | Good for small objects           |
+| `yolov8n`                                      | YOLO v8     | ~280 FPS | Fastest v8, 1.5 GB VRAM          |
+| `yolov8s` / `yolov8m` / `yolov8l` / `yolov8x` | YOLO v8     | varies   | Larger = more accurate           |
+| `yolov9c` / `yolov9e` / `yolov9m`             | YOLO v9     | varies   | Programmable gradient nets       |
+| `yolov10n` ... `yolov10x`                      | YOLO v10    | varies   | NMS-free inference               |
+| `yolo11n` / `yolo11s` / `yolo11m` / `yolo11l` / `yolo11x` | YOLO11 | varies | 2024 C3k2+C2PSA arch |
+| `yolo26n` / `yolo26s` / `yolo26m` / `yolo26l` / `yolo26x` | YOLO26 | varies | 2025, best efficiency |
 
 **Key Training Arguments:**
 
@@ -626,7 +628,7 @@ Apache License 2.0 — see [LICENSE](LICENSE)
 - [ ] Weights & Biases integration
 - [ ] TensorRT optimization
 - [ ] Docker deployment
-- [x] YOLO v8, v9, v10 architectures (19 variants)
+- [x] YOLO v8, v9, v10, YOLO11, YOLO26 architectures (29 variants)
 - [ ] DETR architecture
 - [ ] Mobile deployment guide
 

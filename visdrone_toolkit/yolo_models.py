@@ -1,8 +1,12 @@
 """
 YOLO v8+ model wrappers for VisDrone detection.
 
-Provides unified interface for YOLOv8 models (nano, small, medium, large, extra-large)
-using Ultralytics YOLO implementation.
+Provides unified interface for YOLO models using Ultralytics:
+- YOLOv8  (2023): yolov8n/s/m/l/x + seg variants
+- YOLOv9  (2024): yolov9c/m/e
+- YOLOv10 (2024): yolov10n/s/m/b/l/x
+- YOLO11  (2024): yolo11n/s/m/l/x
+- YOLO26  (2025): yolo26n/s/m/l/x
 
 Requires: pip install ultralytics>=8.0.0
 """
@@ -386,3 +390,151 @@ class YOLOv10ExtraLarge(YOLOv8Base):
     """YOLOv10 Extra Large - Next-gen YOLO (xl variant)."""
 
     ULTRALYTICS_MODEL = "yolov10x.pt"
+
+
+# ---------------------------------------------------------------------------
+# YOLO11 — 2024 architecture (C3k2 + C2PSA blocks)
+# ---------------------------------------------------------------------------
+
+
+@ModelRegistry.register("yolo11n")
+class YOLO11Nano(YOLOv8Base):
+    """
+    YOLO11 Nano — 2024 Ultralytics architecture.
+
+    Improvements over v8:
+    - C3k2 blocks replace C2f for improved feature extraction
+    - C2PSA attention module in the neck
+    - Same params as v8n with better accuracy
+
+    Specs:
+    - Parameters: ~2.6M
+    - mAP (COCO): ~39.5%
+    - Model size: ~5.4 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo11n.pt"
+
+
+@ModelRegistry.register("yolo11s")
+class YOLO11Small(YOLOv8Base):
+    """YOLO11 Small — 2024 architecture (small variant).
+
+    Specs:
+    - Parameters: ~9.5M
+    - mAP (COCO): ~47.0%
+    - Model size: ~18.4 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo11s.pt"
+
+
+@ModelRegistry.register("yolo11m")
+class YOLO11Medium(YOLOv8Base):
+    """YOLO11 Medium — 2024 architecture (medium variant).
+
+    Specs:
+    - Parameters: ~20.1M
+    - mAP (COCO): ~51.5%
+    - Model size: ~38.8 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo11m.pt"
+
+
+@ModelRegistry.register("yolo11l")
+class YOLO11Large(YOLOv8Base):
+    """YOLO11 Large — 2024 architecture (large variant).
+
+    Specs:
+    - Parameters: ~25.4M
+    - mAP (COCO): ~53.4%
+    - Model size: ~49.0 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo11l.pt"
+
+
+@ModelRegistry.register("yolo11x")
+class YOLO11ExtraLarge(YOLOv8Base):
+    """YOLO11 Extra Large — 2024 architecture (xl variant).
+
+    Specs:
+    - Parameters: ~57.0M
+    - mAP (COCO): ~54.7%
+    - Model size: ~109 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo11x.pt"
+
+
+# ---------------------------------------------------------------------------
+# YOLO26 — 2025 architecture (improved efficiency over v11)
+# ---------------------------------------------------------------------------
+
+
+@ModelRegistry.register("yolo26n")
+class YOLO26Nano(YOLOv8Base):
+    """
+    YOLO26 Nano — 2025 Ultralytics architecture.
+
+    Improvements over v11/v8:
+    - More efficient backbone with fewer parameters at same accuracy
+    - Better small-object detection (relevant for VisDrone)
+    - Refined neck and detection head
+
+    Specs:
+    - Parameters: ~2.6M
+    - mAP (COCO): ~39+ (better efficiency than v8n)
+    - Model size: ~5.3 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo26n.pt"
+
+
+@ModelRegistry.register("yolo26s")
+class YOLO26Small(YOLOv8Base):
+    """YOLO26 Small — 2025 architecture (small variant).
+
+    Specs:
+    - Parameters: ~10.0M
+    - Model size: ~19.5 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo26s.pt"
+
+
+@ModelRegistry.register("yolo26m")
+class YOLO26Medium(YOLOv8Base):
+    """YOLO26 Medium — 2025 architecture (medium variant).
+
+    Specs:
+    - Parameters: ~21.9M
+    - Model size: ~42.2 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo26m.pt"
+
+
+@ModelRegistry.register("yolo26l")
+class YOLO26Large(YOLOv8Base):
+    """YOLO26 Large — 2025 architecture (large variant).
+
+    Specs:
+    - Parameters: ~26.3M
+    - Model size: ~50.7 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo26l.pt"
+
+
+@ModelRegistry.register("yolo26x")
+class YOLO26ExtraLarge(YOLOv8Base):
+    """YOLO26 Extra Large — 2025 architecture (xl variant).
+
+    Specs:
+    - Parameters: ~59.0M
+    - Model size: ~113 MB
+    """
+
+    ULTRALYTICS_MODEL = "yolo26x.pt"

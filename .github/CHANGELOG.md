@@ -23,13 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **YOLO v8+ Integration (Phase 1-3 Complete)** - Full support for YOLO v8, v9, and v10 models alongside existing torchvision models:
+- **YOLO v8+ Integration (Phase 1-3 Complete)** - Full support for YOLO v8, v9, v10, YOLO11, and YOLO26 alongside existing torchvision models:
 
-  - 19 registered YOLO models (YOLOv8: 5 variants, YOLOv9: 2 variants, YOLOv10: 5 variants, plus 7 additional)
+  - **29 registered YOLO models**: YOLOv8 (5+5 seg variants), YOLOv9 (3), YOLOv10 (6), YOLO11 (5), YOLO26 (5)
   - Abstract model interface (`DetectionModel`) for unified API
   - Training adapters for framework-specific training (Torchvision, YOLO, DETR-prepared)
   - Format converters for COCO ↔ YOLO coordinate conversion
   - Model registry system for dynamic registration and extensibility
+
+- **YOLO11 support** (2024 architecture) — `yolo11n/s/m/l/x`:
+  - C3k2 blocks replace C2f; C2PSA attention module in neck
+  - 2.6M–57.0M params; mAP@COCO 39.5%–54.7%
+
+- **YOLO26 support** (2025 architecture) — `yolo26n/s/m/l/x`:
+  - Best efficiency-per-parameter of all supported architectures
+  - 2.6M–59.0M params; improved small-object detection (beneficial for VisDrone)
 
 - **YOLO Ultralytics training delegation (Phase 4 Critical Fix)** - Replaced fake YOLO training loop with correct Ultralytics engine delegation:
 

@@ -133,26 +133,16 @@ class YOLOv8Base(DetectionModel):
         images: List[torch.Tensor],
         _targets: List[Dict[str, torch.Tensor]],
     ):
+        """Not implemented — YOLO training is handled by YOLOTrainer (Ultralytics engine).
+
+        Calling model.forward() in training mode is not meaningful for YOLO.
+        Use YOLOTrainer.train() from visdrone_toolkit.yolo_trainer instead.
         """
-        Handle training forward pass.
-
-        Note: YOLO models are typically trained using Ultralytics Trainer,
-        not with standard PyTorch training loops. This method provides
-        a minimal interface for compatibility.
-
-        Args:
-            images: List of input images
-            _targets: List of target dicts (unused)
-
-        Returns:
-            Loss value
-        """
-        # Stack images into batch
-        _ = torch.stack(images) if isinstance(images, list) else images
-
-        # For now, return dummy loss
-        # In production, would integrate with Ultralytics Trainer
-        return torch.tensor(0.0, requires_grad=True)
+        raise NotImplementedError(
+            "Direct YOLO training via forward() is not supported. "
+            "Use YOLOTrainer from visdrone_toolkit.yolo_trainer, which delegates "
+            "to the Ultralytics training engine with correct loss computation."
+        )
 
     def get_input_format(self) -> str:
         """Return YOLO input format (normalized coordinates)."""

@@ -130,24 +130,55 @@ def show_available_models():
     console.print("\n[dim]Use --model <name> to select a model[/dim]\n")
 
 
-def main():
-    args = parse_args()
+def _is_yolo_model(model_name: str) -> bool:
+    """Return True if the model name refers to a YOLO (Ultralytics) model."""
+    return model_name.lower().startswith("yolo")
 
-    if args.available_models:
-        show_available_models()
-        return
 
+def _train_yolo(args) -> None:
+    """Route YOLO model training to the Ultralytics engine via YOLOTrainer."""
+    from visdrone_toolkit.yolo_trainer import YOLOTrainer
+
+    console.print(
+        "\n[bold yellow]YOLO model detected — using Ultralytics training engine[/bold yellow]"
+    )
+    console.print(
+        "[dim]Note: --multiscale, --small-anchors, --lr-schedule, --accumulation-steps "
+        "are handled internally by Ultralytics for YOLO models.[/dim]\n"
+    )
+
+    # Map device torch.device → string Ultralytics expects
+    device_str = args.device  # e.g. 'cuda', 'cpu', '0'
+
+    trainer = YOLOTrainer(
+        model_name=args.model,
+        num_classes=args.num_classes,
+        device=device_str,
+    )
+
+    result = trainer.train(
+        train_img_dir=args.train_img_dir,
+        train_ann_dir=args.train_ann_dir,
+        val_img_dir=args.val_img_dir,
+        val_ann_dir=args.val_ann_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        use_amp=args.amp,
+        output_dir=args.output_dir,
+        workers=args.num_workers,
+    )
+
+    console.print("\n[bold green]Training complete![/bold green]")
+    if result["model_path"]:
+        console.print(f"  Best model saved to: {result['model_path']}")
+    console.print(f"  All artifacts saved to: {result['output_dir']}")
+
+
+def _train_torchvision(args) -> None:
+    """Route torchvision model training to UnifiedTrainer."""
     device = torch.device(args.device)
     output_dir = Path(args.output_dir)
-
-    # Print configuration
-    console.print("\n[bold cyan]Training Configuration[/bold cyan]")
-    console.print(f"Model: {args.model}")
-    console.print(f"Device: {device}")
-    console.print(f"Epochs: {args.epochs}, Batch size: {args.batch_size}")
-    console.print(f"Learning rate: {args.lr}, Schedule: {args.lr_schedule}")
-    if args.amp:
-        console.print("[green]✓[/green] Using automatic mixed precision")
 
     # Create datasets
     console.print("\n[yellow]Loading datasets...[/yellow]")
@@ -174,7 +205,6 @@ def main():
         )
         console.print(f"[green]✓[/green] Loaded {len(val_dataset)} validation images")
 
-    # Create dataloaders
     from torch.utils.data import DataLoader
 
     train_loader = DataLoader(
@@ -185,7 +215,6 @@ def main():
         collate_fn=collate_fn,
         pin_memory=device.type == "cuda",
     )
-
     val_loader = None
     if val_dataset:
         val_loader = DataLoader(
@@ -204,16 +233,14 @@ def main():
         num_classes=args.num_classes,
         pretrained=args.pretrained,
     )
-
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     console.print(f"[cyan]Total parameters: {total_params:,}[/cyan]")
     console.print(f"[cyan]Trainable parameters: {trainable_params:,}[/cyan]")
 
-    # Create trainer
     trainer = UnifiedTrainer(model, device=device)
 
-    # Resume from checkpoint if provided
+    optimizer = None
     if args.resume:
         console.print(f"\n[yellow]Resuming from checkpoint: {args.resume}[/yellow]")
         optimizer = torch.optim.SGD(
@@ -224,41 +251,22 @@ def main():
         )
         trainer.load_checkpoint(args.resume, optimizer)
         console.print("[green]✓[/green] Checkpoint loaded")
-    else:
-        optimizer = None
 
-    # Create learning rate scheduler
+    # Build LR scheduler
     lr_scheduler = None
+    base_opt = optimizer or torch.optim.SGD(
+        [p for p in model.parameters() if p.requires_grad],
+        lr=args.lr,
+        momentum=args.momentum,
+        weight_decay=args.weight_decay,
+    )
     if args.lr_schedule == "multistep":
-        optimizer_for_scheduler = (
-            optimizer
-            if optimizer is not None
-            else torch.optim.SGD(
-                [p for p in model.parameters() if p.requires_grad],
-                lr=args.lr,
-                momentum=args.momentum,
-                weight_decay=args.weight_decay,
-            )
-        )
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer_for_scheduler, milestones=args.lr_milestones, gamma=0.1
+            base_opt, milestones=args.lr_milestones, gamma=0.1
         )
     elif args.lr_schedule == "cosine":
-        optimizer_for_scheduler = (
-            optimizer
-            if optimizer is not None
-            else torch.optim.SGD(
-                [p for p in model.parameters() if p.requires_grad],
-                lr=args.lr,
-                momentum=args.momentum,
-                weight_decay=args.weight_decay,
-            )
-        )
-        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer_for_scheduler, T_max=args.epochs
-        )
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(base_opt, T_max=args.epochs)
 
-    # Train
     console.print("\n[bold green]Starting training...[/bold green]\n")
     result = trainer.train(
         train_loader=train_loader,
@@ -277,6 +285,27 @@ def main():
     console.print("[cyan]Final metrics:[/cyan]")
     console.print(f"  Best F1: {result['best_metric']:.4f}")
     console.print(f"  Checkpoints saved to: {output_dir}")
+
+
+def main():
+    args = parse_args()
+
+    if args.available_models:
+        show_available_models()
+        return
+
+    console.print("\n[bold cyan]Training Configuration[/bold cyan]")
+    console.print(f"Model: {args.model}")
+    console.print(f"Device: {args.device}")
+    console.print(f"Epochs: {args.epochs}, Batch size: {args.batch_size}")
+    console.print(f"Learning rate: {args.lr}")
+    if args.amp:
+        console.print("[green]✓[/green] Using automatic mixed precision")
+
+    if _is_yolo_model(args.model):
+        _train_yolo(args)
+    else:
+        _train_torchvision(args)
 
 
 if __name__ == "__main__":

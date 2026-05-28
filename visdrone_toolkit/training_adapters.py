@@ -104,11 +104,17 @@ class TorchvisionTrainingAdapter(TrainingAdapter):
 
 
 class YOLOTrainingAdapter(TrainingAdapter):
-    """
-    Training adapter for YOLO models.
+    """Stub adapter for YOLO models — training is NOT handled here.
 
-    Handles the special training requirements of Ultralytics YOLO.
-    YOLO models don't follow the standard PyTorch training API.
+    YOLO training requires Ultralytics' own engine (TaskAlignedAssigner,
+    DFL/box/cls losses, Mosaic augmentation, etc.) and cannot be unified
+    with the torchvision training loop at the backward pass level.
+
+    Real YOLO training is delegated to ``YOLOTrainer`` in
+    ``visdrone_toolkit.yolo_trainer``, which calls ``ultralytics.YOLO.train()``.
+
+    This adapter only implements ``validation_step`` for inference-based
+    evaluation after training.
     """
 
     def training_step(
@@ -121,47 +127,15 @@ class YOLOTrainingAdapter(TrainingAdapter):
         _scaler: Optional[GradScaler] = None,
         _use_amp: bool = False,
     ) -> Tuple[float, Dict[str, float]]:
+        """Not a real training step — raises to prevent silent no-ops.
+
+        YOLO training must be done via YOLOTrainer, not UnifiedTrainer.
         """
-        Perform one training step for YOLO models.
-
-        Note: YOLO training is handled differently. This adapter provides
-        a standardized interface but delegates to the model's training method.
-
-        Args:
-            model: YOLO detection model
-            images: List of input images
-            targets: List of target dicts
-            device: Device to train on
-            optimizer: Optimizer (for compatibility, may not be used)
-            _scaler: Gradient scaler (for compatibility, may not be used)
-            _use_amp: Whether to use AMP (for compatibility)
-
-        Returns:
-            Tuple of (total_loss, loss_dict)
-        """
-        # Move to device
-        images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-        model.train()
-
-        # YOLO specific training step
-        # This assumes the model has a custom training_step method
-        if hasattr(model, "_yolo_training_step"):
-            loss, loss_dict = model._yolo_training_step(images, targets, optimizer)
-            return loss, loss_dict
-        else:
-            # Fallback: assume standard forward pass with targets
-            loss_dict = model(images, targets)
-            if isinstance(loss_dict, torch.Tensor):
-                return loss_dict.item(), {"loss": loss_dict}
-            elif isinstance(loss_dict, dict):
-                total_loss = sum(
-                    v.item() if isinstance(v, torch.Tensor) else v for v in loss_dict.values()
-                )
-                return total_loss, loss_dict
-            else:
-                raise ValueError(f"Unexpected loss type: {type(loss_dict)}") from None
+        raise NotImplementedError(
+            "YOLO training is not supported through UnifiedTrainer._train_epoch(). "
+            "Use YOLOTrainer from visdrone_toolkit.yolo_trainer instead, "
+            "or call scripts/train.py which routes YOLO models automatically."
+        )
 
     def validation_step(
         self,

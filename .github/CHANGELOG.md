@@ -32,10 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Model registry system for dynamic registration and extensibility
 
 - **YOLO11 support** (2024 architecture) — `yolo11n/s/m/l/x`:
+
   - C3k2 blocks replace C2f; C2PSA attention module in neck
   - 2.6M–57.0M params; mAP@COCO 39.5%–54.7%
 
 - **YOLO26 support** (2025 architecture) — `yolo26n/s/m/l/x`:
+
   - Best efficiency-per-parameter of all supported architectures
   - 2.6M–59.0M params; improved small-object detection (beneficial for VisDrone)
 

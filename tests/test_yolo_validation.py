@@ -69,7 +69,7 @@ class TestYOLOTrainingAdapter:
 
     def test_torchvision_training_adapter_selection(self):
         """Test that torchvision models select TorchvisionTrainingAdapter."""
-        model = get_model("fasterrcnn_resnet50", num_classes=12, pretrained=False)
+        model = get_model("fasterrcnn_resnet50", num_classes=12, pretrained=False, device="cpu")
         trainer = UnifiedTrainer(model, device="cpu")
 
         # Check adapter type
@@ -142,7 +142,7 @@ class TestYOLOWithDataset:
             annotation_dir=str(temp_dataset / "annotations"),
         )
 
-        model = get_model("yolov8n", num_classes=12, pretrained=False)
+        model = get_model("yolov8n", num_classes=12, pretrained=False, device="cpu")
         model.eval()
         device = torch.device("cpu")
         model = model.to(device)
@@ -184,7 +184,7 @@ class TestUnifiedTrainerWithYOLO:
 
     def test_trainer_initialization_with_yolo(self):
         """Test UnifiedTrainer initializes with YOLO model."""
-        model = get_model("yolov8n", num_classes=12, pretrained=False)
+        model = get_model("yolov8n", num_classes=12, pretrained=False, device="cpu")
         trainer = UnifiedTrainer(model, device="cpu")
 
         assert trainer is not None
@@ -193,7 +193,7 @@ class TestUnifiedTrainerWithYOLO:
 
     def test_trainer_can_access_model_parameters(self):
         """Test trainer can access model parameters."""
-        model = get_model("yolov8n", num_classes=12, pretrained=False)
+        model = get_model("yolov8n", num_classes=12, pretrained=False, device="cpu")
         trainer = UnifiedTrainer(model, device="cpu")
 
         params = list(trainer.model.parameters())
@@ -226,7 +226,7 @@ class TestYOLOModelComparison:
         ]
 
         for model_name in test_models:
-            model = get_model(model_name, num_classes=12, pretrained=False)
+            model = get_model(model_name, num_classes=12, pretrained=False, device="cpu")
 
             # All should implement interface
             assert hasattr(model, "forward")

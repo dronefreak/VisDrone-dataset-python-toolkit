@@ -55,6 +55,21 @@ YOLO_CLASSES = [
     "others",
 ]
 
+# YOLO class colors (RGB)
+YOLO_CLASS_COLORS = {
+    0: (255, 0, 0),  # pedestrian - red
+    1: (255, 128, 0),  # people - orange
+    2: (255, 255, 0),  # bicycle - yellow
+    3: (0, 255, 0),  # car - green
+    4: (0, 255, 128),  # van - light green
+    5: (0, 255, 255),  # truck - cyan
+    6: (0, 128, 255),  # tricycle - light blue
+    7: (0, 0, 255),  # awning-tricycle - blue
+    8: (128, 0, 255),  # bus - purple
+    9: (255, 0, 255),  # motor - magenta
+    10: (255, 0, 128),  # others - pink
+}
+
 # Number of classes (excluding background for torchvision models)
 NUM_CLASSES = len(VISDRONE_CLASSES)
 

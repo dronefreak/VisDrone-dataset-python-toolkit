@@ -347,30 +347,75 @@ class TestInferenceDrawDetections:
     def test_draws_on_frame(self):
         from scripts.inference import draw_detections
 
+        YOLO_CLASS_COLORS = {
+            0: (255, 0, 0),  # pedestrian - red
+            1: (255, 128, 0),  # people - orange
+            2: (255, 255, 0),  # bicycle - yellow
+            3: (0, 255, 0),  # car - green
+            4: (0, 255, 128),  # van - light green
+            5: (0, 255, 255),  # truck - cyan
+            6: (0, 128, 255),  # tricycle - light blue
+            7: (0, 0, 255),  # awning-tricycle - blue
+            8: (128, 0, 255),  # bus - purple
+            9: (255, 0, 255),  # motor - magenta
+            10: (255, 0, 128),  # others - pink
+        }
+
         frame = _make_image(100, 120)
         boxes = np.array([[5, 5, 30, 30]], dtype=np.float32)
         scores = np.array([0.9])
         labels = np.array([1])
-        result = draw_detections(frame, boxes, scores, labels, ["ignored", "pedestrian"])
+        result = draw_detections(
+            frame, boxes, scores, labels, ["ignored", "pedestrian"], class_colors=YOLO_CLASS_COLORS
+        )
         assert result.shape == frame.shape
 
     def test_empty_detections(self):
         from scripts.inference import draw_detections
 
+        YOLO_CLASS_COLORS = {
+            0: (255, 0, 0),  # pedestrian - red
+            1: (255, 128, 0),  # people - orange
+            2: (255, 255, 0),  # bicycle - yellow
+            3: (0, 255, 0),  # car - green
+            4: (0, 255, 128),  # van - light green
+            5: (0, 255, 255),  # truck - cyan
+            6: (0, 128, 255),  # tricycle - light blue
+            7: (0, 0, 255),  # awning-tricycle - blue
+            8: (128, 0, 255),  # bus - purple
+            9: (255, 0, 255),  # motor - magenta
+            10: (255, 0, 128),  # others - pink
+        }
         frame = _make_image()
-        result = draw_detections(frame, np.zeros((0, 4)), np.array([]), np.array([]), [])
+        result = draw_detections(
+            frame, np.zeros((0, 4)), np.array([]), np.array([]), [], class_colors=YOLO_CLASS_COLORS
+        )
         assert result.shape == frame.shape
 
     def test_label_out_of_range(self):
         from scripts.inference import draw_detections
 
         frame = _make_image()
+        YOLO_CLASS_COLORS = {
+            0: (255, 0, 0),  # pedestrian - red
+            1: (255, 128, 0),  # people - orange
+            2: (255, 255, 0),  # bicycle - yellow
+            3: (0, 255, 0),  # car - green
+            4: (0, 255, 128),  # van - light green
+            5: (0, 255, 255),  # truck - cyan
+            6: (0, 128, 255),  # tricycle - light blue
+            7: (0, 0, 255),  # awning-tricycle - blue
+            8: (128, 0, 255),  # bus - purple
+            9: (255, 0, 255),  # motor - magenta
+            10: (255, 0, 128),  # others - pink
+        }
         result = draw_detections(
             frame,
             np.array([[0, 0, 20, 20]], dtype=np.float32),
             np.array([0.8]),
             np.array([99]),
             ["only_one"],
+            class_colors=YOLO_CLASS_COLORS,
         )
         assert result is not None
 

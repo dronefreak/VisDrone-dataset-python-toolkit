@@ -310,8 +310,7 @@ def main() -> None:
         cap.release()
         cv2.destroyAllWindows()
         print(
-            f"\nFrames: {frame_count}  Saved: {saved_count}  "
-            f"Avg FPS: {fps_counter.get_fps():.1f}"
+            f"\nFrames: {frame_count}  Saved: {saved_count}  Avg FPS: {fps_counter.get_fps():.1f}"
         )
 
 

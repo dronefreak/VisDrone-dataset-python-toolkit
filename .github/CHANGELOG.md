@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-05-31
 
 ### Fixed
 
@@ -142,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile deployment guide (CoreML, TFLite)
 - Soft-NMS vectorization with torch.cdist for 10-50x inference speedup
 
-## [2.10] - 2025-01-18
+## [2.1.0] - 2025-01-18
 
 ### Add GitHub Workflows
 
@@ -261,6 +261,5 @@ We use [Semantic Versioning](https://semver.org/):
 
 ## Links
 
-- [Unreleased]: https://github.com/dronefreak/VisDrone-dataset-python-toolkit/compare/v2.0.0...HEAD
 - [2.0.0]: https://github.com/dronefreak/VisDrone-dataset-python-toolkit/releases/tag/v2.0.0
 - [1.0.0]: https://github.com/dronefreak/VisDrone-dataset-python-toolkit/releases/tag/v1.0.0

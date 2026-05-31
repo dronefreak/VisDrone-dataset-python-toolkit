@@ -34,7 +34,7 @@ import cv2
 import numpy as np
 import torch
 
-from visdrone_toolkit.utils import VISDRONE_CLASSES, get_model
+from visdrone_toolkit.utils import YOLO_CLASS_COLORS, YOLO_CLASSES, get_model
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 _VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
@@ -104,7 +104,7 @@ def run_yolo(
         conf=score_threshold,
         device=device,
         imgsz=imgsz,
-        save=False,
+        save=True,
         verbose=True,
     )
 
@@ -122,13 +122,7 @@ def run_yolo(
         labels = result.boxes.cls.cpu().numpy().astype(int)
 
         # Custom visualization
-        viz = draw_detections(
-            frame,
-            boxes,
-            scores,
-            labels,
-            VISDRONE_CLASSES,
-        )
+        viz = draw_detections(frame, boxes, scores, labels, YOLO_CLASSES, YOLO_CLASS_COLORS)
 
         # Save
         image_path = Path(result.path)
@@ -246,6 +240,7 @@ def draw_detections(
     scores: np.ndarray,
     labels: np.ndarray,
     class_names: list[str],
+    class_colors: dict[int, tuple[int, int, int]],
 ) -> np.ndarray:
     """Draw bounding boxes and labels on a BGR frame."""
     out = frame.copy()
@@ -262,12 +257,15 @@ def draw_detections(
     for box, score, label in zip(boxes, scores, labels):
         x1, y1, x2, y2 = box.astype(int)
 
+        # Get class color
+        color = class_colors.get(label, (0, 255, 0))
+
         # Draw box
         cv2.rectangle(
             out,
             (x1, y1),
             (x2, y2),
-            (0, 255, 0),
+            color,
             box_thickness,
         )
 
@@ -282,13 +280,12 @@ def draw_detections(
             font_scale,
             font_thickness,
         )
-
         # Filled label background
         cv2.rectangle(
             out,
             (x1, y1 - th - baseline - 4),
             (x1 + tw + 4, y1),
-            (0, 255, 0),
+            color,
             -1,
         )
 
@@ -299,7 +296,7 @@ def draw_detections(
             (x1 + 2, y1 - 4),
             cv2.FONT_HERSHEY_SIMPLEX,
             font_scale,
-            (0, 0, 0),
+            (255, 255, 255),
             font_thickness,
             cv2.LINE_AA,
         )
@@ -337,14 +334,24 @@ def run_torchvision_images(
 
         if save_viz:
             viz = draw_detections(
-                frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+                frame,
+                result["boxes"],
+                result["scores"],
+                result["labels"],
+                YOLO_CLASSES,
+                YOLO_CLASS_COLORS,
             )
             out_path = output_dir / f"{image_path.stem}_pred.jpg"
             cv2.imwrite(str(out_path), viz)
 
         if show:
             viz = draw_detections(
-                frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+                frame,
+                result["boxes"],
+                result["scores"],
+                result["labels"],
+                YOLO_CLASSES,
+                YOLO_CLASS_COLORS,
             )
             cv2.imshow("VisDrone Inference", viz)
             if cv2.waitKey(0) == ord("q"):
@@ -401,7 +408,12 @@ def run_torchvision_video(
         total_det += len(result["boxes"])
 
         viz = draw_detections(
-            frame, result["boxes"], result["scores"], result["labels"], VISDRONE_CLASSES
+            frame,
+            result["boxes"],
+            result["scores"],
+            result["labels"],
+            YOLO_CLASSES,
+            YOLO_CLASS_COLORS,
         )
 
         if writer is not None:

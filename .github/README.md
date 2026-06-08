@@ -13,7 +13,7 @@ PyTorch toolkit for the [VisDrone aerial detection dataset](https://github.com/V
 YOLO26x inference on the VisDrone2019 video benchmark.
 
 <p align="center">
-  <img src="assets/visdrone_showcase.gif" alt="VisDrone Detection Demo" width="150%">
+  <img src="../assets/visdrone_showcase.gif" alt="VisDrone Detection Demo" width="150%">
 </p>
 
 _Example: YOLO26x predictions on VisDrone video sequences using Soft-NMS (confidence threshold = 0.5)._

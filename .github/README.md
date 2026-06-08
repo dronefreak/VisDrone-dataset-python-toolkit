@@ -6,12 +6,6 @@
 
 PyTorch toolkit for the [VisDrone aerial detection dataset](https://github.com/VisDrone/VisDrone-Dataset). Supports 33 models (4 torchvision + 29 YOLO), end-to-end training, evaluation, and inference.
 
----
-
-## Demo
-
-YOLO26x inference on the VisDrone2019 video benchmark.
-
 <p align="center">
   <img src="../assets/visdrone_showcase.gif" alt="VisDrone Detection Demo" width="150%">
 </p>

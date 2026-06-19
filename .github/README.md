@@ -51,9 +51,52 @@ data/
 python scripts/train.py --available-models   # list all 33 models
 ```
 
+### Pretrained VisDrone Models
+
+Pretrained VisDrone checkpoints for all supported YOLO architectures are available through the Hugging Face collection:
+
+<https://huggingface.co/collections/dronefreak/visdrone-detection-model-zoo>
+
+The collection includes model cards, benchmark results, evaluation visualizations, and ready-to-use weights for YOLOv8, YOLOv9, YOLOv10, YOLO11, and YOLO26 model families.
+
+| Family  | Available Models |
+| ------- | ---------------- |
+| YOLOv8  | n, s, m, x       |
+| YOLOv9  | c, m, e          |
+| YOLOv10 | n, l, x          |
+| YOLO11  | n, l, x          |
+| YOLO26  | n, l, x          |
+
+Individual model repositories can be accessed directly from the Hugging Face collection page.
+
 ---
 
 ## Usage
+
+### Pre-trained Models
+
+```bash
+pip install ultralytics huggingface_hub
+```
+
+```python
+from huggingface_hub import hf_hub_download
+from ultralytics import YOLO
+
+weights = hf_hub_download(
+    repo_id="dronefreak/yolov8m-visdrone",
+    filename="best.pt"
+)
+
+model = YOLO(weights)
+
+results = model.predict(
+    source="image.jpg",
+    conf=0.25
+)
+
+results[0].show()
+```
 
 ### Train
 
@@ -166,21 +209,6 @@ dataset = VisDroneDataset(
 loader = DataLoader(dataset, batch_size=2, collate_fn=collate_fn, shuffle=True)
 model = get_model("fasterrcnn_resnet50", num_classes=12, pretrained=True)
 ```
-
----
-
-## Performance
-
-Faster R-CNN ResNet50, VisDrone2019-DET-val (200 epochs, RTX 4070 Super):
-
-| Metric    | Score               |
-| --------- | ------------------- |
-| F1        | 66.7%               |
-| Precision | 71.0%               |
-| Recall    | 62.9%               |
-| Speed     | 18 FPS (55ms/image) |
-
-YOLO v8n after 1 epoch (untrained baseline): mAP@0.5 = 0.119, mAP@0.5:0.95 = 0.062.
 
 ---
 

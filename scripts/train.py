@@ -56,7 +56,21 @@ def parse_args():
     # Training hyperparameters
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size")
-    parser.add_argument("--lr", type=float, default=0.005, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=0.005, help="Learning rate (YOLO/torchvision)")
+    parser.add_argument(
+        "--rfdetr-lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate for RF-DETR (default: 1e-4). The global --lr default (0.005) is "
+        "too high for RF-DETR's AdamW encoder and causes NaN losses.",
+    )
+    parser.add_argument(
+        "--rfdetr-warmup-epochs",
+        type=float,
+        default=5.0,
+        help="LR warmup epochs for RF-DETR (default: 5). Warmup prevents NaN from the "
+        "randomly-initialised detection head at the start of training.",
+    )
     parser.add_argument("--momentum", type=float, default=0.9, help="SGD momentum")
     parser.add_argument("--weight-decay", type=float, default=0.0005, help="Weight decay")
     parser.add_argument("--num-workers", type=int, default=4, help="DataLoader workers")
@@ -222,7 +236,8 @@ def _train_rfdetr(args) -> None:
         "(e.g. data/VisDrone2019-DET-RF-DETR/).[/dim]"
     )
     console.print(
-        "[dim]Note: --multiscale, --lr-schedule, --small-anchors are ignored for RF-DETR.[/dim]\n"
+        "[dim]Note: --multiscale, --lr-schedule, --small-anchors are ignored for RF-DETR. "
+        "Use --rfdetr-lr (default: 1e-4) and --rfdetr-warmup-epochs (default: 5) instead.[/dim]\n"
     )
 
     num_classes = len(_RFDETR_CLASSES)  # always 10 (filtered)
@@ -238,10 +253,11 @@ def _train_rfdetr(args) -> None:
         dataset_dir=dataset_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
-        lr=args.lr,
+        lr=args.rfdetr_lr,
         output_dir=args.output_dir,
         workers=args.num_workers,
         grad_accum_steps=args.accumulation_steps,
+        warmup_epochs=args.rfdetr_warmup_epochs,
     )
 
     console.print("\n[bold green]Training complete![/bold green]")

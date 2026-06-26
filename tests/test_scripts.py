@@ -814,3 +814,29 @@ class TestTrainRFDETRRouting:
         assert not _is_rfdetr_model("yolov8n")
         assert not _is_rfdetr_model("rtdetr-l")
         assert not _is_rfdetr_model("fasterrcnn_resnet50")
+
+    def test_rfdetr_lr_arg_exists_with_safe_default(self):
+        """--rfdetr-lr argument must exist with a safe default (1e-4)."""
+        import argparse
+
+        import scripts.train as train_mod
+
+        # Build a minimal args namespace to check --rfdetr-lr is registered
+        # by inspecting the parser defaults we can construct a dry namespace
+        # parser = argparse.ArgumentParser()
+        # Grab just the rfdetr-lr arg by temporarily mocking parse_args
+        # We use parse_known_args with an empty list to get defaults
+        # Reconstruct the args the parser would produce with --available-models (no required checks)
+        import sys
+
+        saved = sys.argv
+        try:
+            sys.argv = ["train.py", "--available-models"]
+            args = train_mod.parse_args()
+        finally:
+            sys.argv = saved
+
+        assert hasattr(args, "rfdetr_lr"), "--rfdetr-lr arg not found in parsed namespace"
+        assert args.rfdetr_lr == 1e-4, f"--rfdetr-lr default should be 1e-4, got {args.rfdetr_lr}"
+        assert hasattr(args, "rfdetr_warmup_epochs"), "--rfdetr-warmup-epochs arg not found"
+        assert args.rfdetr_warmup_epochs > 0, "--rfdetr-warmup-epochs should be > 0 by default"

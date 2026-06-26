@@ -400,3 +400,27 @@ class TestRFDETRTrainer:
         assert "rfdetr-small" in _MODEL_CLASS_MAP
         assert "rfdetr-medium" in _MODEL_CLASS_MAP
         assert "rfdetr-large" in _MODEL_CLASS_MAP
+
+    def test_trainer_default_lr_is_safe(self):
+        """RFDETRTrainer.train() must default to 1e-4, not the 0.005 YOLO default."""
+        import inspect
+
+        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
+
+        sig = inspect.signature(RFDETRTrainer.train)
+        lr_default = sig.parameters["lr"].default
+        assert (
+            lr_default == 1e-4
+        ), f"Default LR {lr_default} is too high for RF-DETR; must be 1e-4 to prevent NaN."
+
+    def test_trainer_default_warmup_nonzero(self):
+        """RFDETRTrainer.train() must have warmup_epochs > 0 to prevent NaN from random head init."""
+        import inspect
+
+        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
+
+        sig = inspect.signature(RFDETRTrainer.train)
+        warmup = sig.parameters["warmup_epochs"].default
+        assert (
+            warmup > 0
+        ), f"warmup_epochs default is {warmup}; must be > 0 to prevent early-training NaN."

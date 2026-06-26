@@ -108,16 +108,24 @@ class RFDETRTrainer:
     # Public API
     # ------------------------------------------------------------------
 
+    # RF-DETR-safe default LR. The global train.py default (0.005) is calibrated
+    # for YOLO/torchvision SGD and is ~50× too large for RF-DETR's AdamW encoder,
+    # causing NaN outputs on the first epoch.  Always use this as the fallback.
+    _DEFAULT_LR: float = 1e-4
+    _DEFAULT_LR_ENCODER_RATIO: float = 1.5  # lr_encoder = lr * ratio
+
     def train(
         self,
         dataset_dir: str | Path,
         epochs: int = 100,
         batch_size: int = 4,
-        lr: float = 1e-4,
+        lr: float = _DEFAULT_LR,
         output_dir: str | Path = "outputs",
         workers: int = 2,
         grad_accum_steps: int = 4,
         use_ema: bool = True,
+        warmup_epochs: float = 5.0,
+        amp_dtype: str = "bf16",
         **extra_kwargs: Any,
     ) -> dict[str, Any]:
         """Train an RF-DETR model on VisDrone (Roboflow COCO) data.
@@ -131,11 +139,17 @@ class RFDETRTrainer:
                          (e.g. ``data/VisDrone2019-DET-RF-DETR/``).
             epochs: Number of training epochs.
             batch_size: Per-GPU batch size. Use ``"auto"`` to let rfdetr choose.
-            lr: Initial learning rate.
+            lr: Initial learning rate. Defaults to 1e-4 (RF-DETR's safe value).
+                Do NOT pass the global train.py default (0.005) — it will cause
+                NaN losses on the first epoch.
             output_dir: Where to save checkpoints and logs.
             workers: Number of DataLoader workers.
             grad_accum_steps: Gradient accumulation steps.
             use_ema: Whether to use EMA (recommended for RF-DETR).
+            warmup_epochs: LR warmup epochs. Defaults to 5 to avoid NaN from
+                the randomly-initialised detection head at the start of training.
+            amp_dtype: Mixed-precision dtype. ``"bf16"`` (default) is more stable
+                than ``"fp16"`` on Ampere+ GPUs for transformer decoders.
             **extra_kwargs: Forwarded to rfdetr's TrainConfig.
 
         Returns:
@@ -157,11 +171,13 @@ class RFDETRTrainer:
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
-                lr_encoder=lr * 1.5,
+                lr_encoder=lr * self._DEFAULT_LR_ENCODER_RATIO,
                 output_dir=str(output_dir),
                 num_workers=workers,
                 grad_accum_steps=grad_accum_steps,
                 use_ema=use_ema,
+                warmup_epochs=warmup_epochs,
+                amp_dtype=amp_dtype,
                 device=self.device,
                 **extra_kwargs,
             )

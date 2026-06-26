@@ -389,7 +389,11 @@ def main():
     console.print(f"Model: {args.model}")
     console.print(f"Device: {args.device}")
     console.print(f"Epochs: {args.epochs}, Batch size: {args.batch_size}")
-    console.print(f"Learning rate: {args.lr}")
+    console.print(f"Learning rate: {args.lr}") if not _is_rfdetr_model(
+        args.model
+    ) else console.print(
+        f"Learning rate (RF-DETR): {args.rfdetr_lr}, Warmup epochs: {args.rfdetr_warmup_epochs}"
+    )
     if args.amp:
         console.print("[green]✓[/green] Using automatic mixed precision")
 

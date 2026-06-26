@@ -452,6 +452,91 @@ def run_torchvision_video(
         print(f"  Output video saved to: {output_dir / (video_path.stem + '_pred.mp4')}")
 
 
+def run_rfdetr(
+    checkpoint_path: str,
+    input_path: Path,
+    output_dir: Path,
+    score_threshold: float,
+    model_name: str,
+    show: bool,
+) -> None:
+    """Run RF-DETR inference on images or video."""
+    try:
+        import rfdetr as _rfdetr_pkg
+    except ImportError as err:
+        raise ImportError("pip install rfdetr") from err
+
+    from visdrone_toolkit.rfdetr_trainer import _MODEL_CLASS_MAP, _RFDETR_CLASSES
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    cls_name = _MODEL_CLASS_MAP.get(model_name, "RFDETRLarge")
+    model_cls = getattr(_rfdetr_pkg, cls_name)
+    model = model_cls(pretrain_weights=str(checkpoint_path), num_classes=len(_RFDETR_CLASSES))
+
+    from PIL import Image as PILImage
+
+    def _predict_and_save(img_path: Path) -> int:
+        pil_img = PILImage.open(img_path).convert("RGB")
+        detections = model.predict(pil_img, threshold=score_threshold)
+
+        # Draw boxes using cv2 for consistency with other inference paths
+        img_bgr = cv2.imread(str(img_path))
+        if len(detections) > 0:
+            for box, score, cls_id in zip(
+                detections.xyxy, detections.confidence, detections.class_id
+            ):
+                x1, y1, x2, y2 = map(int, box)
+                label = (
+                    _RFDETR_CLASSES[int(cls_id)]
+                    if int(cls_id) < len(_RFDETR_CLASSES)
+                    else str(cls_id)
+                )
+                cv2.rectangle(img_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    img_bgr,
+                    f"{label} {score:.2f}",
+                    (x1, max(0, y1 - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    1,
+                )
+
+        out_path = output_dir / img_path.name
+        cv2.imwrite(str(out_path), img_bgr)
+        if show:
+            cv2.imshow("RF-DETR", img_bgr)
+            cv2.waitKey(1)
+        return len(detections)
+
+    total_det = 0
+
+    if input_path.is_dir():
+        image_paths = sorted(
+            p for p in input_path.iterdir() if p.suffix.lower() in _IMAGE_EXTENSIONS
+        )
+        print(f"RF-DETR inference on {len(image_paths)} images ...")
+        for img_path in image_paths:
+            total_det += _predict_and_save(img_path)
+    elif input_path.suffix.lower() in _IMAGE_EXTENSIONS:
+        print(f"RF-DETR inference on {input_path} ...")
+        total_det += _predict_and_save(input_path)
+    elif input_path.suffix.lower() in _VIDEO_EXTENSIONS:
+        print(
+            f"RF-DETR inference on video {input_path} — not yet supported; run on extracted frames."
+        )
+        return
+    else:
+        raise ValueError(f"Unsupported input: {input_path}")
+
+    if show:
+        cv2.destroyAllWindows()
+
+    print(f"  Total detections: {total_det}")
+    print(f"  Results saved to: {output_dir}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -467,6 +552,7 @@ def main() -> None:
         raise FileNotFoundError(f"Input not found: {input_path}")
 
     is_ultralytics = args.model.lower().startswith(("yolo", "rtdetr"))
+    is_rfdetr = args.model.lower().startswith("rfdetr")
 
     if is_ultralytics:
         run_yolo(
@@ -478,6 +564,17 @@ def main() -> None:
             imgsz=args.imgsz,
             show=args.show,
             model_name=args.model,
+        )
+        return
+
+    if is_rfdetr:
+        run_rfdetr(
+            checkpoint_path=args.checkpoint,
+            input_path=input_path,
+            output_dir=output_dir,
+            score_threshold=args.score_threshold,
+            model_name=args.model,
+            show=args.show,
         )
         return
 

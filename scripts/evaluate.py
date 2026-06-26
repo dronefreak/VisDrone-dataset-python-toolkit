@@ -45,6 +45,10 @@ def _is_yolo_model(name: str) -> bool:
     return name.lower().startswith(_ULTRALYTICS_PREFIXES)
 
 
+def _is_rfdetr_model(name: str) -> bool:
+    return name.lower().startswith("rfdetr")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Evaluate VisDrone detection models",
@@ -292,6 +296,123 @@ def evaluate_torchvision(
     return metrics
 
 
+def evaluate_rfdetr(
+    checkpoint_path: str,
+    image_dir: str | Path,
+    annotation_dir: str | Path,
+    num_classes: int,
+    device: str,
+    output_dir: Path,
+    model_name: str = "rfdetr-large",
+    score_threshold: float = 0.5,
+    iou_threshold: float = 0.5,
+    save_predictions: bool = False,
+) -> dict[str, Any]:
+    """Evaluate an RF-DETR model on VisDrone data.
+
+    Runs per-image inference via ``model.predict()``, converts
+    ``supervision.Detections`` to standard dicts, and computes mAP
+    using pycocotools.
+
+    Args:
+        checkpoint_path: Path to ``.pth`` checkpoint saved by RFDETRTrainer.
+        image_dir: Path to VisDrone images directory.
+        annotation_dir: Path to VisDrone annotation text files.
+        num_classes: Number of detection classes.
+        device: Device string passed to RF-DETR (``'cuda'``, ``'cpu'``).
+        output_dir: Where to save metrics JSON.
+        model_name: Registered RF-DETR model name.
+        score_threshold: Confidence threshold for predictions.
+        iou_threshold: IoU threshold for P/R computation.
+        save_predictions: Whether to save predictions JSON.
+
+    Returns:
+        Metrics dict compatible with ``print_metrics_table``.
+    """
+    try:
+        import rfdetr as _rfdetr_pkg
+    except ImportError as err:
+        raise ImportError("pip install rfdetr") from err
+
+    from visdrone_toolkit.dataset import VisDroneDataset
+    from visdrone_toolkit.rfdetr_trainer import _MODEL_CLASS_MAP, _RFDETR_CLASSES
+
+    console.print("\n[bold cyan]RF-DETR evaluation — using rfdetr predict engine[/bold cyan]")
+
+    names = _RFDETR_CLASSES[:num_classes] if num_classes < len(_RFDETR_CLASSES) else _RFDETR_CLASSES
+    cls_name = _MODEL_CLASS_MAP.get(model_name, "RFDETRLarge")
+    model_cls = getattr(_rfdetr_pkg, cls_name)
+    model = model_cls(pretrain_weights=str(checkpoint_path), num_classes=len(names), device=device)
+
+    # Load dataset using VisDroneDataset to get GT annotations
+    dataset = VisDroneDataset(
+        image_dir=str(image_dir),
+        annotation_dir=str(annotation_dir),
+        filter_ignored=True,
+    )
+
+    import time
+
+    from PIL import Image as PILImage
+
+    all_preds: list[dict] = []
+    all_targets: list[dict] = []
+
+    t0 = time.time()
+    for idx in range(len(dataset)):
+        img_path = dataset.image_files[idx]
+        _, target = dataset[idx]
+
+        pil_img = PILImage.open(img_path).convert("RGB")
+        detections = model.predict(pil_img, threshold=score_threshold)
+
+        if len(detections) > 0:
+            pred = {
+                "boxes": torch.from_numpy(detections.xyxy).float(),
+                "scores": torch.from_numpy(detections.confidence).float(),
+                "labels": torch.from_numpy(detections.class_id).long(),
+            }
+        else:
+            pred = {
+                "boxes": torch.zeros((0, 4)),
+                "scores": torch.zeros(0),
+                "labels": torch.zeros(0, dtype=torch.long),
+            }
+
+        all_preds.append(pred)
+        all_targets.append(target)
+
+    elapsed = time.time() - t0
+    n = len(all_preds)
+
+    overall = compute_metrics(all_preds, all_targets, iou_threshold)
+    per_class = _per_class_metrics(all_preds, all_targets, iou_threshold)
+
+    map50: float | None = None
+    map50_95: float | None = None
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        map50, map50_95 = _coco_map(all_preds, all_targets)
+
+    metrics: dict[str, Any] = {
+        "precision": overall["precision"],
+        "recall": overall["recall"],
+        "f1": overall["f1"],
+        "mAP50": map50,
+        "mAP50_95": map50_95,
+        "per_class": per_class,
+        "num_images": n,
+        "fps": n / elapsed if elapsed > 0 else 0,
+        "avg_ms": elapsed / n * 1000 if n > 0 else 0,
+    }
+
+    if save_predictions:
+        _save_json(all_preds, all_targets, output_dir / "predictions.json")
+
+    return metrics
+
+
 def _per_class_metrics(
     predictions: list[dict], targets: list[dict], iou_threshold: float
 ) -> dict[str, dict[str, float]]:
@@ -510,6 +631,19 @@ def main() -> None:
             device=device_str,
             output_dir=output_dir,
             model_name=args.model,
+        )
+    elif _is_rfdetr_model(args.model):
+        metrics = evaluate_rfdetr(
+            checkpoint_path=args.checkpoint,
+            image_dir=args.image_dir,
+            annotation_dir=args.annotation_dir,
+            num_classes=args.num_classes,
+            device=device_str,
+            output_dir=output_dir,
+            model_name=args.model,
+            score_threshold=args.score_threshold,
+            iou_threshold=args.iou_threshold,
+            save_predictions=args.save_predictions,
         )
     else:
         model = load_torchvision_model(

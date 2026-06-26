@@ -131,6 +131,23 @@ class TestIsYoloModel:
         assert not _is_yolo_model("fasterrcnn_resnet50")
         assert not _is_yolo_model("retinanet_resnet50")
         assert not _is_yolo_model("fcos_resnet50")
+        assert not _is_yolo_model("rfdetr-large")  # rfdetr has its own path
+
+
+class TestIsRFDETRModel:
+    def test_rfdetr_prefixes(self):
+        from scripts.evaluate import _is_rfdetr_model
+
+        assert _is_rfdetr_model("rfdetr-nano")
+        assert _is_rfdetr_model("rfdetr-large")
+        assert _is_rfdetr_model("RFDETR-small")  # case-insensitive
+
+    def test_non_rfdetr(self):
+        from scripts.evaluate import _is_rfdetr_model
+
+        assert not _is_rfdetr_model("yolov8n")
+        assert not _is_rfdetr_model("rtdetr-l")
+        assert not _is_rfdetr_model("fasterrcnn_resnet50")
 
 
 class TestPrintMetricsTable:
@@ -771,3 +788,29 @@ class TestYOLOTrainerAbsolutePath:
             assert (
                 project_path.is_absolute()
             ), f"project must be absolute; got {captured['project']!r}"
+
+
+class TestTrainRFDETRRouting:
+    """Test that train.py correctly routes rfdetr-* models to _is_rfdetr_model."""
+
+    def test_rfdetr_models_detected(self):
+        from scripts.train import _is_rfdetr_model
+
+        assert _is_rfdetr_model("rfdetr-nano")
+        assert _is_rfdetr_model("rfdetr-small")
+        assert _is_rfdetr_model("rfdetr-medium")
+        assert _is_rfdetr_model("rfdetr-large")
+        assert _is_rfdetr_model("RFDETR-large")  # case-insensitive
+
+    def test_rfdetr_not_ultralytics(self):
+        from scripts.train import _is_rfdetr_model, _is_ultralytics_model
+
+        assert not _is_ultralytics_model("rfdetr-large")
+        assert _is_rfdetr_model("rfdetr-large")
+
+    def test_yolo_not_rfdetr(self):
+        from scripts.train import _is_rfdetr_model
+
+        assert not _is_rfdetr_model("yolov8n")
+        assert not _is_rfdetr_model("rtdetr-l")
+        assert not _is_rfdetr_model("fasterrcnn_resnet50")

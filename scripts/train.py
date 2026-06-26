@@ -29,10 +29,17 @@ def parse_args():
     parser.add_argument("--available-models", action="store_true", help="Show available models")
 
     # Dataset paths
-    parser.add_argument("--train-img-dir", help="Training images directory")
-    parser.add_argument("--train-ann-dir", help="Training annotations directory")
-    parser.add_argument("--val-img-dir", help="Validation images directory")
-    parser.add_argument("--val-ann-dir", help="Validation annotations directory")
+    parser.add_argument(
+        "--train-img-dir",
+        help="Training images directory (for YOLO/torchvision). For RF-DETR models, pass the Roboflow COCO root dir here (e.g. data/VisDrone2019-DET-RF-DETR/).",
+    )
+    parser.add_argument(
+        "--train-ann-dir", help="Training annotations directory (YOLO/torchvision only)"
+    )
+    parser.add_argument("--val-img-dir", help="Validation images directory (YOLO/torchvision only)")
+    parser.add_argument(
+        "--val-ann-dir", help="Validation annotations directory (YOLO/torchvision only)"
+    )
 
     # Model configuration
     parser.add_argument(
@@ -100,8 +107,14 @@ def parse_args():
     if args.available_models:
         return args
 
-    # Require dataset paths for training
-    if not args.train_img_dir or not args.train_ann_dir:
+    # For RF-DETR, only --train-img-dir (as dataset_dir) is required
+    if _is_rfdetr_model(args.model):
+        if not args.train_img_dir:
+            parser.error(
+                "For RF-DETR models, pass the Roboflow COCO root directory as --train-img-dir "
+                "(e.g. --train-img-dir data/VisDrone2019-DET-RF-DETR/)"
+            )
+    elif not args.train_img_dir or not args.train_ann_dir:
         parser.error("--train-img-dir and --train-ann-dir are required for training")
 
     return args
@@ -132,6 +145,11 @@ def show_available_models():
     for model in sorted(rtdetr_models):
         console.print(f"  • {model}")
 
+    console.print("\n[yellow]RF-DETR Models (rfdetr / PyTorch Lightning):[/yellow]")
+    rfdetr_models = [m for m in ModelRegistry._registry if m.lower().startswith("rfdetr")]
+    for model in sorted(rfdetr_models):
+        console.print(f"  • {model}")
+
     console.print("\n[dim]Use --model <name> to select a model[/dim]\n")
 
 
@@ -139,6 +157,11 @@ def _is_ultralytics_model(model_name: str) -> bool:
     """Return True if the model is handled by the Ultralytics engine (YOLO or RT-DETR)."""
     name = model_name.lower()
     return name.startswith("yolo") or name.startswith("rtdetr")
+
+
+def _is_rfdetr_model(model_name: str) -> bool:
+    """Return True if the model is an RF-DETR model (rfdetr package)."""
+    return model_name.lower().startswith("rfdetr")
 
 
 def _train_ultralytics(args) -> None:
@@ -179,6 +202,46 @@ def _train_ultralytics(args) -> None:
         use_amp=args.amp,
         output_dir=args.output_dir,
         workers=args.num_workers,
+    )
+
+    console.print("\n[bold green]Training complete![/bold green]")
+    if result["model_path"]:
+        console.print(f"  Best model saved to: {result['model_path']}")
+    console.print(f"  All artifacts saved to: {result['output_dir']}")
+
+
+def _train_rfdetr(args) -> None:
+    """Route RF-DETR model training to RFDETRTrainer (rfdetr / PyTorch Lightning)."""
+    from visdrone_toolkit.rfdetr_trainer import _RFDETR_CLASSES, RFDETRTrainer
+
+    console.print(
+        "\n[bold yellow]RF-DETR model detected — using rfdetr PyTorch Lightning engine[/bold yellow]"
+    )
+    console.print(
+        "[dim]Note: --train-img-dir should be the Roboflow COCO root dir "
+        "(e.g. data/VisDrone2019-DET-RF-DETR/).[/dim]"
+    )
+    console.print(
+        "[dim]Note: --multiscale, --lr-schedule, --small-anchors are ignored for RF-DETR.[/dim]\n"
+    )
+
+    num_classes = len(_RFDETR_CLASSES)  # always 10 (filtered)
+    dataset_dir = args.train_img_dir  # reuse --train-img-dir as Roboflow COCO root
+
+    trainer = RFDETRTrainer(
+        model_name=args.model,
+        num_classes=num_classes,
+        device=args.device,
+    )
+
+    result = trainer.train(
+        dataset_dir=dataset_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        output_dir=args.output_dir,
+        workers=args.num_workers,
+        grad_accum_steps=args.accumulation_steps,
     )
 
     console.print("\n[bold green]Training complete![/bold green]")
@@ -316,6 +379,8 @@ def main():
 
     if _is_ultralytics_model(args.model):
         _train_ultralytics(args)
+    elif _is_rfdetr_model(args.model):
+        _train_rfdetr(args)
     else:
         _train_torchvision(args)
 

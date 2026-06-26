@@ -117,6 +117,14 @@ class TestIsYoloModel:
         assert _is_yolo_model("yolo26s")
         assert _is_yolo_model("YOLOv8n")  # case-insensitive
 
+    def test_rtdetr_prefixes(self):
+        from scripts.evaluate import _is_yolo_model
+
+        assert _is_yolo_model("rtdetr-l")
+        assert _is_yolo_model("rtdetr-x")
+        assert _is_yolo_model("rtdetr-resnet50")
+        assert _is_yolo_model("RTDETR-l")  # case-insensitive
+
     def test_non_yolo(self):
         from scripts.evaluate import _is_yolo_model
 

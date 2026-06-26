@@ -127,24 +127,32 @@ def show_available_models():
     for model in sorted(yolo_models):
         console.print(f"  • {model}")
 
+    console.print("\n[yellow]RT-DETR Models (ultralytics):[/yellow]")
+    rtdetr_models = [m for m in ModelRegistry._registry if m.lower().startswith("rtdetr")]
+    for model in sorted(rtdetr_models):
+        console.print(f"  • {model}")
+
     console.print("\n[dim]Use --model <name> to select a model[/dim]\n")
 
 
-def _is_yolo_model(model_name: str) -> bool:
-    """Return True if the model name refers to a YOLO (Ultralytics) model."""
-    return model_name.lower().startswith("yolo")
+def _is_ultralytics_model(model_name: str) -> bool:
+    """Return True if the model is handled by the Ultralytics engine (YOLO or RT-DETR)."""
+    name = model_name.lower()
+    return name.startswith("yolo") or name.startswith("rtdetr")
 
 
-def _train_yolo(args) -> None:
-    """Route YOLO model training to the Ultralytics engine via YOLOTrainer."""
+def _train_ultralytics(args) -> None:
+    """Route YOLO/RT-DETR training to the Ultralytics engine via YOLOTrainer."""
     from visdrone_toolkit.yolo_trainer import _VISDRONE_CLASSES, YOLOTrainer
 
+    is_rtdetr = args.model.lower().startswith("rtdetr")
+    model_family = "RT-DETR" if is_rtdetr else "YOLO"
     console.print(
-        "\n[bold yellow]YOLO model detected — using Ultralytics training engine[/bold yellow]"
+        f"\n[bold yellow]{model_family} model detected — using Ultralytics training engine[/bold yellow]"
     )
     console.print(
         "[dim]Note: --multiscale, --small-anchors, --lr-schedule, --accumulation-steps "
-        "are handled internally by Ultralytics for YOLO models.[/dim]\n"
+        "are handled internally by Ultralytics for YOLO/RT-DETR models.[/dim]\n"
     )
 
     # YOLO always trains with 11 classes: VisDrone's ignored-regions (class 0) is
@@ -306,8 +314,8 @@ def main():
     if args.amp:
         console.print("[green]✓[/green] Using automatic mixed precision")
 
-    if _is_yolo_model(args.model):
-        _train_yolo(args)
+    if _is_ultralytics_model(args.model):
+        _train_ultralytics(args)
     else:
         _train_torchvision(args)
 

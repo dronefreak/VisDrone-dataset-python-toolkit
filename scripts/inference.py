@@ -86,16 +86,26 @@ def run_yolo(
     device: str,
     imgsz: int,
     show: bool,
+    model_name: str = "",
 ) -> None:
-    """Run YOLO inference with custom visualization."""
+    """Run YOLO or RT-DETR inference with custom visualization."""
     try:
         from ultralytics import YOLO as UltralyticsYOLO
     except ImportError as err:
         raise ImportError("pip install ultralytics>=8.0.0") from err
 
+    # RT-DETR checkpoints must be loaded with the RTDETR class
+    if model_name.lower().startswith("rtdetr"):
+        try:
+            from ultralytics import RTDETR as _LoadClass
+        except ImportError as err:
+            raise ImportError("pip install -U ultralytics") from err
+    else:
+        _LoadClass = UltralyticsYOLO
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    model = UltralyticsYOLO(str(checkpoint_path))
+    model = _LoadClass(str(checkpoint_path))
 
     print(f"Running YOLO inference on {input_path} ...")
 
@@ -456,9 +466,9 @@ def main() -> None:
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
 
-    is_yolo = args.model.lower().startswith("yolo")
+    is_ultralytics = args.model.lower().startswith(("yolo", "rtdetr"))
 
-    if is_yolo:
+    if is_ultralytics:
         run_yolo(
             checkpoint_path=args.checkpoint,
             input_path=input_path,
@@ -467,6 +477,7 @@ def main() -> None:
             device=args.device,
             imgsz=args.imgsz,
             show=args.show,
+            model_name=args.model,
         )
         return
 

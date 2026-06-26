@@ -53,6 +53,35 @@ class TestYOLOModelInstantiation:
         assert "yolov9c" in yolo_models
         assert "yolov10n" in yolo_models
 
+    def test_all_rtdetr_models_registered(self):
+        """Test that RT-DETR models are all registered."""
+        rtdetr_models = [m for m in ModelRegistry._registry if m.lower().startswith("rtdetr")]
+        assert len(rtdetr_models) == 4, f"Expected 4 RT-DETR models, got {len(rtdetr_models)}"
+        assert "rtdetr-l" in rtdetr_models
+        assert "rtdetr-x" in rtdetr_models
+        assert "rtdetr-resnet50" in rtdetr_models
+        assert "rtdetr-resnet101" in rtdetr_models
+
+    @pytest.mark.parametrize("model_name", ["rtdetr-l", "rtdetr-x"])
+    def test_rtdetr_official_model_creation(self, model_name):
+        """Test creating official Ultralytics RT-DETR models (auto-downloadable weights)."""
+        model = get_model(model_name, num_classes=11, pretrained=False, device="cpu")
+        assert model is not None
+        assert hasattr(model, "forward")
+        assert model.num_classes == 11
+
+    @pytest.mark.parametrize("model_name", ["rtdetr-resnet50", "rtdetr-resnet101"])
+    def test_rtdetr_resnet_model_creation_requires_weights(self, model_name):
+        """Test that ResNet-backbone RT-DETR models raise FileNotFoundError without manual weights.
+
+        rtdetr-resnet50 and rtdetr-resnet101 are from the original RT-DETR paper and
+        are not hosted on the Ultralytics CDN. Weights must be downloaded manually.
+        """
+        import pytest
+
+        with pytest.raises((FileNotFoundError, Exception)):
+            get_model(model_name, num_classes=11, pretrained=False, device="cpu")
+
 
 class TestYOLOTrainingAdapter:
     """Test YOLO training adapter."""
@@ -204,15 +233,17 @@ class TestYOLOModelComparison:
     """Compare YOLO vs torchvision models."""
 
     def test_model_registry_has_both_types(self):
-        """Test registry has both YOLO and torchvision models."""
+        """Test registry has YOLO, RT-DETR, and torchvision models."""
         models = list(ModelRegistry._registry.keys())
 
         yolo_models = [m for m in models if "yolo" in m.lower()]
+        rtdetr_models = [m for m in models if m.lower().startswith("rtdetr")]
         tv_models = [m for m in models if any(x in m for x in ["faster", "fcos", "retina"])]
 
         assert len(yolo_models) > 10, f"Expected >10 YOLO models, got {len(yolo_models)}"
+        assert len(rtdetr_models) == 4, f"Expected 4 RT-DETR models, got {len(rtdetr_models)}"
         assert len(tv_models) == 4, f"Expected 4 torchvision models, got {len(tv_models)}"
-        assert len(yolo_models) + len(tv_models) == len(models)
+        assert len(yolo_models) + len(rtdetr_models) + len(tv_models) == len(models)
 
     def test_same_interface_for_all_models(self):
         """Test all models implement same interface."""

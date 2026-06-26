@@ -38,11 +38,11 @@ from visdrone_toolkit.utils import VISDRONE_CLASSES, collate_fn, compute_metrics
 
 console = Console()
 
-_YOLO_PREFIXES = ("yolo",)
+_ULTRALYTICS_PREFIXES = ("yolo", "rtdetr")
 
 
 def _is_yolo_model(name: str) -> bool:
-    return name.lower().startswith(_YOLO_PREFIXES)
+    return name.lower().startswith(_ULTRALYTICS_PREFIXES)
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,8 +87,9 @@ def evaluate_yolo(
     num_classes: int,
     device: str,
     output_dir: Path,
+    model_name: str = "",
 ) -> dict[str, Any]:
-    """Evaluate a YOLO model using the Ultralytics val engine.
+    """Evaluate a YOLO or RT-DETR model using the Ultralytics val engine.
 
     Converts VisDrone annotations to YOLO format on-the-fly, runs
     ``model.val()``, and returns the standard Ultralytics metrics dict.
@@ -102,7 +103,20 @@ def evaluate_yolo(
 
     from visdrone_toolkit.yolo_trainer import _VISDRONE_CLASSES, YOLOTrainer
 
-    console.print("\n[bold cyan]YOLO evaluation — using Ultralytics val engine[/bold cyan]")
+    is_rtdetr = model_name.lower().startswith("rtdetr")
+    if is_rtdetr:
+        try:
+            from ultralytics import RTDETR as _LoadClass
+        except ImportError as err:
+            raise ImportError("pip install -U ultralytics") from err
+        family_label = "RT-DETR"
+    else:
+        _LoadClass = UltralyticsYOLO
+        family_label = "YOLO"
+
+    console.print(
+        f"\n[bold cyan]{family_label} evaluation — using Ultralytics val engine[/bold cyan]"
+    )
 
     names = _VISDRONE_CLASSES[: min(num_classes, len(_VISDRONE_CLASSES))]
     trainer = YOLOTrainer.__new__(YOLOTrainer)
@@ -119,7 +133,7 @@ def evaluate_yolo(
             annotation_dir,
         )
 
-        model = UltralyticsYOLO(str(checkpoint_path))
+        model = _LoadClass(str(checkpoint_path))
         results = model.val(
             data=str(dataset_yaml),
             device=device,
@@ -495,6 +509,7 @@ def main() -> None:
             num_classes=args.num_classes,
             device=device_str,
             output_dir=output_dir,
+            model_name=args.model,
         )
     else:
         model = load_torchvision_model(

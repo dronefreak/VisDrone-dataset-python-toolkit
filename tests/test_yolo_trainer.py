@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
 from visdrone_toolkit.yolo_trainer import _VISDRONE_CLASSES, YOLOTrainer
@@ -519,3 +520,45 @@ class TestMissingUltralytics:
             # We can also just verify the guard is present by inspecting source.
             with open(yt_module.__file__) as fh:
                 assert "ImportError" in fh.read()
+
+
+class TestRTDETRTrainerRouting:
+    """Test that YOLOTrainer selects RTDETR class for rtdetr- model names."""
+
+    def test_yolo_trainer_uses_rtdetr_class_for_rtdetr_models(self):
+        """YOLOTrainer should load RTDETR class when model_name starts with 'rtdetr'."""
+        from ultralytics import RTDETR
+
+        from visdrone_toolkit.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer(model_name="rtdetr-l", num_classes=11, device="cpu")
+        assert trainer._UltralyticsYOLO is RTDETR
+
+    def test_yolo_trainer_uses_yolo_class_for_yolo_models(self):
+        """YOLOTrainer should keep YOLO class for yolo* model names."""
+        from ultralytics import YOLO
+
+        from visdrone_toolkit.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer(model_name="yolov8n", num_classes=11, device="cpu")
+        assert trainer._UltralyticsYOLO is YOLO
+
+    def test_yolo_trainer_pt_name_for_rtdetr(self):
+        """YOLOTrainer should derive correct .pt filename for RT-DETR models."""
+        from visdrone_toolkit.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer(model_name="rtdetr-x", num_classes=11, device="cpu")
+        assert trainer._pt_name == "rtdetr-x.pt"
+
+    @pytest.mark.parametrize(
+        "model_name",
+        ["rtdetr-l", "rtdetr-x", "rtdetr-resnet50", "rtdetr-resnet101"],
+    )
+    def test_all_rtdetr_variants_route_to_rtdetr_class(self, model_name):
+        """All RT-DETR variants should use the RTDETR class."""
+        from ultralytics import RTDETR
+
+        from visdrone_toolkit.yolo_trainer import YOLOTrainer
+
+        trainer = YOLOTrainer(model_name=model_name, num_classes=11, device="cpu")
+        assert trainer._UltralyticsYOLO is RTDETR

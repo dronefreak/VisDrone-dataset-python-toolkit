@@ -14,6 +14,7 @@ __author__ = "Saumya Kumaar Saksena"
 __license__ = "Apache-2.0"
 
 from visdrone_toolkit.dataset import VisDroneDataset
+from visdrone_toolkit.rtdetr_models import RTDETRBase  # noqa: F401
 
 # Register all models
 from visdrone_toolkit.torchvision_models import (  # noqa: F401
@@ -38,4 +39,5 @@ __all__ = [
     "FCOSWrapper",
     "RetinaNetWrapper",
     "YOLOv8Base",
+    "RTDETRBase",
 ]

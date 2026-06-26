@@ -66,7 +66,7 @@ class YOLOTrainer:
         """Initialize YOLOTrainer.
 
         Args:
-            model_name: Registered model name, e.g. 'yolov8n', 'yolov9c', 'yolov10m'
+            model_name: Registered model name, e.g. 'yolov8n', 'yolov9c', 'rtdetr-l'
             num_classes: Number of detection classes (default 11 for VisDrone w/o ignored)
             device: Device string passed to Ultralytics ('cuda', 'cpu', '0', '0,1', ...)
         """
@@ -74,17 +74,28 @@ class YOLOTrainer:
             from ultralytics import YOLO as UltralyticsYOLO
         except ImportError as err:
             raise ImportError(
-                "Ultralytics is required for YOLO training. "
+                "Ultralytics is required for YOLO/RT-DETR training. "
                 "Install with: pip install ultralytics>=8.0.0"
             ) from err
 
         # Derive the .pt filename from the registered model name
-        # e.g. 'yolov8n' -> 'yolov8n.pt', 'yolov10m' -> 'yolov10m.pt'
+        # e.g. 'yolov8n' -> 'yolov8n.pt', 'rtdetr-l' -> 'rtdetr-l.pt'
         self._pt_name = f"{model_name}.pt"
         self._model_name = model_name
         self.num_classes = num_classes
         self.device = device
-        self._UltralyticsYOLO = UltralyticsYOLO
+
+        # RT-DETR models require the RTDETR class; YOLO models use YOLO
+        if model_name.startswith("rtdetr"):
+            try:
+                from ultralytics import RTDETR as _UClass
+            except ImportError as err:
+                raise ImportError(
+                    "ultralytics.RTDETR not found. Upgrade: pip install -U ultralytics"
+                ) from err
+            self._UltralyticsYOLO = _UClass
+        else:
+            self._UltralyticsYOLO = UltralyticsYOLO
 
     # ------------------------------------------------------------------
     # Public API

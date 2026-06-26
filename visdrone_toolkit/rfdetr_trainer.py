@@ -30,7 +30,6 @@ Requires: pip install "rfdetr[train]" pytorch_lightning
 from __future__ import annotations
 
 import json
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -51,6 +50,17 @@ _RFDETR_CLASSES = [
 
 # Category name to exclude from COCO JSON (id=11 in the pre-prepared dataset)
 _EXCLUDED_CATEGORY = "others"
+
+# Minimum bounding-box area (pixels²) to keep.
+# Boxes smaller than this produce near-zero-area targets that can cause NaN
+# in the GIoU / Hungarian-matcher cost matrix.
+_MIN_BOX_AREA_PX: int = 4
+
+# Maximum number of annotations to keep per image.
+# RF-DETR has 300 queries; the auto-batch probe assumes ≤100 objects/image.
+# VisDrone has images with up to 902 objects — far beyond model capacity.
+# Annotations are sorted by area (largest first) so prominent objects are kept.
+_MAX_ANNS_PER_IMAGE: int = 300
 
 # Map from registered model name → rfdetr class name
 _MODEL_CLASS_MAP = {
@@ -178,6 +188,9 @@ class RFDETRTrainer:
                 use_ema=use_ema,
                 warmup_epochs=warmup_epochs,
                 amp_dtype=amp_dtype,
+                # Tight gradient clipping to prevent decoder box coordinates
+                # from going negative (clamped to 0 → zero-area boxes → NaN GIoU).
+                clip_max_norm=extra_kwargs.pop("clip_max_norm", 0.01),
                 device=self.device,
                 **extra_kwargs,
             )
@@ -254,7 +267,16 @@ class RFDETRTrainer:
                     link.symlink_to(img_path.resolve())
 
     def _filter_coco_json(self, src_json: Path, dst_json: Path) -> None:
-        """Write a filtered COCO JSON removing the ``others`` category.
+        """Write a sanitised COCO JSON that is safe for RF-DETR training.
+
+        1. Removes the ``others`` category and its annotations.
+        2. Removes annotations whose bounding-box area is below
+           ``_MIN_BOX_AREA_PX`` (near-zero-area boxes cause NaN in the
+           GIoU cost matrix used by the Hungarian matcher).
+        3. Caps annotations per image at ``_MAX_ANNS_PER_IMAGE``, keeping
+           the largest objects (by area).  VisDrone has images with up to
+           902 objects; RF-DETR has 300 queries — feeding far more targets
+           than queries causes memory spikes and numerical instability.
 
         Args:
             src_json: Source ``_annotations.coco.json``.
@@ -263,20 +285,35 @@ class RFDETRTrainer:
         with open(src_json) as fh:
             data = json.load(fh)
 
-        # Find excluded category IDs
+        # 1. Find excluded category IDs
         excluded_ids = {
             cat["id"] for cat in data.get("categories", []) if cat["name"] == _EXCLUDED_CATEGORY
         }
 
-        if not excluded_ids:
-            # Nothing to filter — write as-is
-            shutil.copy2(src_json, dst_json)
-            return
-
         filtered_categories = [cat for cat in data["categories"] if cat["id"] not in excluded_ids]
-        filtered_annotations = [
-            ann for ann in data.get("annotations", []) if ann["category_id"] not in excluded_ids
+
+        # 2. Remove excluded categories + tiny boxes
+        anns = [
+            ann
+            for ann in data.get("annotations", [])
+            if ann["category_id"] not in excluded_ids
+            and ann["bbox"][2] * ann["bbox"][3] >= _MIN_BOX_AREA_PX
         ]
+
+        # 3. Cap per-image annotation count (sort largest-first, keep top-N)
+        from collections import defaultdict
+
+        by_image: dict[int, list] = defaultdict(list)
+        for ann in anns:
+            by_image[ann["image_id"]].append(ann)
+
+        filtered_annotations = []
+        for img_anns in by_image.values():
+            if len(img_anns) > _MAX_ANNS_PER_IMAGE:
+                img_anns = sorted(
+                    img_anns, key=lambda a: a["bbox"][2] * a["bbox"][3], reverse=True
+                )[:_MAX_ANNS_PER_IMAGE]
+            filtered_annotations.extend(img_anns)
 
         filtered_data = {
             **data,

@@ -332,8 +332,102 @@ class TestRFDETRTrainer:
         assert 11 not in ann_cat_ids
         assert 1 in ann_cat_ids
 
-    def test_filter_coco_json_no_others_is_passthrough(self, tmp_path):
-        """If no 'others' category exists, JSON is written unchanged."""
+    def test_filter_coco_json_removes_tiny_boxes(self, tmp_path):
+        """Annotations with area < _MIN_BOX_AREA_PX must be dropped."""
+        import json
+
+        from visdrone_toolkit.rfdetr_trainer import _MIN_BOX_AREA_PX, RFDETRTrainer
+
+        src = tmp_path / "src.json"
+        src.write_text(
+            json.dumps(
+                {
+                    "images": [{"id": 1, "file_name": "a.jpg"}],
+                    "categories": [{"id": 1, "name": "car"}],
+                    "annotations": [
+                        # keep: area = 10*10 = 100
+                        {
+                            "id": 1,
+                            "image_id": 1,
+                            "category_id": 1,
+                            "bbox": [0, 0, 10, 10],
+                            "area": 100,
+                            "iscrowd": 0,
+                        },
+                        # drop: area = 3*1 = 3 < _MIN_BOX_AREA_PX
+                        {
+                            "id": 2,
+                            "image_id": 1,
+                            "category_id": 1,
+                            "bbox": [5, 5, 3, 1],
+                            "area": 3,
+                            "iscrowd": 0,
+                        },
+                    ],
+                }
+            )
+        )
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        dst = tmp_path / "filtered.json"
+        trainer._filter_coco_json(src, dst)
+
+        with open(dst) as f:
+            result = json.load(f)
+
+        ann_ids = [a["id"] for a in result["annotations"]]
+        assert 1 in ann_ids, "Valid box should be kept"
+        assert 2 not in ann_ids, f"Tiny box (area < {_MIN_BOX_AREA_PX}) should be removed"
+
+    def test_filter_coco_json_caps_per_image_annotations(self, tmp_path):
+        """Images with more than _MAX_ANNS_PER_IMAGE annotations should be capped (largest kept)."""
+        import json
+
+        from visdrone_toolkit.rfdetr_trainer import _MAX_ANNS_PER_IMAGE, RFDETRTrainer
+
+        # Build an image with _MAX_ANNS_PER_IMAGE + 5 annotations
+        n_extra = 5
+        n_total = _MAX_ANNS_PER_IMAGE + n_extra
+        annotations = [
+            {
+                "id": i,
+                "image_id": 1,
+                "category_id": 1,
+                "bbox": [0, 0, i + 1, i + 1],  # area = (i+1)^2 — largest have highest i
+                "area": (i + 1) ** 2,
+                "iscrowd": 0,
+            }
+            for i in range(n_total)
+        ]
+        src = tmp_path / "src.json"
+        src.write_text(
+            json.dumps(
+                {
+                    "images": [{"id": 1, "file_name": "a.jpg"}],
+                    "categories": [{"id": 1, "name": "car"}],
+                    "annotations": annotations,
+                }
+            )
+        )
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        dst = tmp_path / "filtered.json"
+        trainer._filter_coco_json(src, dst)
+
+        with open(dst) as f:
+            result = json.load(f)
+
+        kept = result["annotations"]
+        assert (
+            len(kept) == _MAX_ANNS_PER_IMAGE
+        ), f"Expected {_MAX_ANNS_PER_IMAGE} annotations, got {len(kept)}"
+        # The n_extra smallest (lowest id) should be dropped
+        kept_ids = {a["id"] for a in kept}
+        for dropped_id in range(n_extra):
+            assert (
+                dropped_id not in kept_ids
+            ), f"Tiny annotation id={dropped_id} should have been dropped"
+
         import json
 
         from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer

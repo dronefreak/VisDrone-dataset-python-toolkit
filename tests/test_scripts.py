@@ -817,9 +817,6 @@ class TestTrainRFDETRRouting:
 
     def test_rfdetr_lr_arg_exists_with_safe_default(self):
         """--rfdetr-lr argument must exist with a safe default (1e-4)."""
-        import argparse
-
-        import scripts.train as train_mod
 
         # Build a minimal args namespace to check --rfdetr-lr is registered
         # by inspecting the parser defaults we can construct a dry namespace
@@ -828,6 +825,8 @@ class TestTrainRFDETRRouting:
         # We use parse_known_args with an empty list to get defaults
         # Reconstruct the args the parser would produce with --available-models (no required checks)
         import sys
+
+        import scripts.train as train_mod
 
         saved = sys.argv
         try:

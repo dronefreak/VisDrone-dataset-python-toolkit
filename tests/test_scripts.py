@@ -817,17 +817,9 @@ class TestTrainRFDETRRouting:
 
     def test_rfdetr_lr_arg_exists_with_safe_default(self):
         """--rfdetr-lr argument must exist with a safe default (1e-4)."""
-        import argparse
+        import sys
 
         import scripts.train as train_mod
-
-        # Build a minimal args namespace to check --rfdetr-lr is registered
-        # by inspecting the parser defaults we can construct a dry namespace
-        # parser = argparse.ArgumentParser()
-        # Grab just the rfdetr-lr arg by temporarily mocking parse_args
-        # We use parse_known_args with an empty list to get defaults
-        # Reconstruct the args the parser would produce with --available-models (no required checks)
-        import sys
 
         saved = sys.argv
         try:
@@ -840,3 +832,13 @@ class TestTrainRFDETRRouting:
         assert args.rfdetr_lr == 1e-4, f"--rfdetr-lr default should be 1e-4, got {args.rfdetr_lr}"
         assert hasattr(args, "rfdetr_warmup_epochs"), "--rfdetr-warmup-epochs arg not found"
         assert args.rfdetr_warmup_epochs > 0, "--rfdetr-warmup-epochs should be > 0 by default"
+
+    def test_rfdetr_uses_train_ann_dir(self):
+        """train() signature must accept train_ann_dir (YOLO format, not dataset_dir)."""
+        import inspect
+
+        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
+
+        sig = inspect.signature(RFDETRTrainer.train)
+        assert "train_ann_dir" in sig.parameters, "train() must accept train_ann_dir"
+        assert "dataset_dir" not in sig.parameters, "train() must NOT have old dataset_dir param"

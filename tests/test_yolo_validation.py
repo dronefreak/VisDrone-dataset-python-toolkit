@@ -278,81 +278,7 @@ if __name__ == "__main__":
 
 
 class TestRFDETRTrainer:
-    """Tests for RFDETRTrainer dataset preparation and JSON filtering."""
-
-    def test_filter_coco_json_removes_others_category(self, tmp_path):
-        """Filtered JSON should not contain the 'others' category."""
-        import json
-
-        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
-
-        # Build a minimal COCO JSON with 'others' category
-        src = tmp_path / "src.json"
-        src.write_text(
-            json.dumps(
-                {
-                    "images": [{"id": 1, "file_name": "a.jpg"}],
-                    "categories": [
-                        {"id": 1, "name": "car"},
-                        {"id": 11, "name": "others"},
-                    ],
-                    "annotations": [
-                        {
-                            "id": 1,
-                            "image_id": 1,
-                            "category_id": 1,
-                            "bbox": [0, 0, 10, 10],
-                            "area": 100,
-                            "iscrowd": 0,
-                        },
-                        {
-                            "id": 2,
-                            "image_id": 1,
-                            "category_id": 11,
-                            "bbox": [5, 5, 10, 10],
-                            "area": 100,
-                            "iscrowd": 0,
-                        },
-                    ],
-                }
-            )
-        )
-
-        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
-        dst = tmp_path / "filtered.json"
-        trainer._filter_coco_json(src, dst)
-
-        with open(dst) as f:
-            result = json.load(f)
-
-        cat_names = {c["name"] for c in result["categories"]}
-        assert "others" not in cat_names
-        assert "car" in cat_names
-        ann_cat_ids = {a["category_id"] for a in result["annotations"]}
-        assert 11 not in ann_cat_ids
-        assert 1 in ann_cat_ids
-
-    def test_filter_coco_json_no_others_is_passthrough(self, tmp_path):
-        """If no 'others' category exists, JSON is written unchanged."""
-        import json
-
-        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
-
-        src = tmp_path / "src.json"
-        data = {
-            "images": [],
-            "categories": [{"id": 1, "name": "car"}],
-            "annotations": [],
-        }
-        src.write_text(json.dumps(data))
-
-        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
-        dst = tmp_path / "filtered.json"
-        trainer._filter_coco_json(src, dst)
-
-        with open(dst) as f:
-            result = json.load(f)
-        assert result["categories"] == data["categories"]
+    """Tests for RFDETRTrainer YOLO-format dataset preparation."""
 
     def test_symlink_images_creates_links(self, tmp_path):
         """Each image in src should have a symlink in dst."""
@@ -363,13 +289,11 @@ class TestRFDETRTrainer:
         dst = tmp_path / "dst"
         dst.mkdir()
 
-        # Create fake image files
         (src / "a.jpg").write_text("fake")
         (src / "b.png").write_text("fake")
         (src / "notes.txt").write_text("not an image")
 
-        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
-        trainer._symlink_images(src, dst)
+        RFDETRTrainer._symlink_images(src, dst)
 
         assert (dst / "a.jpg").is_symlink()
         assert (dst / "b.png").is_symlink()
@@ -385,12 +309,12 @@ class TestRFDETRTrainer:
             RFDETRTrainer(model_name="rfdetr-xxl")
 
     def test_rfdetr_classes_count(self):
-        """RF-DETR should train on 10 classes (no ignored-regions, no others)."""
+        """RF-DETR uses 11 classes (no ignored-regions) — consistent with YOLO pipeline."""
         from visdrone_toolkit.rfdetr_trainer import _RFDETR_CLASSES
 
-        assert len(_RFDETR_CLASSES) == 10
-        assert "others" not in _RFDETR_CLASSES
+        assert len(_RFDETR_CLASSES) == 11
         assert "pedestrian" in _RFDETR_CLASSES
+        assert "others" in _RFDETR_CLASSES  # included for YOLO-pipeline consistency
 
     def test_all_rfdetr_variants_in_model_class_map(self):
         """All 4 RF-DETR variants should be in the class map."""
@@ -424,3 +348,63 @@ class TestRFDETRTrainer:
         assert (
             warmup > 0
         ), f"warmup_epochs default is {warmup}; must be > 0 to prevent early-training NaN."
+
+    def test_train_signature_uses_img_ann_dirs(self):
+        """train() must accept train_img_dir/train_ann_dir (not dataset_dir)."""
+        import inspect
+
+        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
+
+        sig = inspect.signature(RFDETRTrainer.train)
+        params = sig.parameters
+        assert "train_img_dir" in params, "train() should accept train_img_dir"
+        assert "train_ann_dir" in params, "train() should accept train_ann_dir"
+        assert "val_img_dir" in params, "train() should accept val_img_dir"
+        assert "val_ann_dir" in params, "train() should accept val_ann_dir"
+        assert "dataset_dir" not in params, "train() should NOT have dataset_dir (COCO-era API)"
+
+    def test_prepare_dataset_writes_yolo_structure(self, tmp_path):
+        """_prepare_dataset must create data.yaml + train/images + train/labels."""
+        import yaml
+
+        from visdrone_toolkit.rfdetr_trainer import RFDETRTrainer
+
+        # Build minimal fake VisDrone train data (1 image + 1 annotation)
+        img_dir = tmp_path / "images"
+        ann_dir = tmp_path / "annotations"
+        img_dir.mkdir()
+        ann_dir.mkdir()
+
+        img_file = img_dir / "test_img.jpg"
+        # Write a tiny valid JPEG (minimal 1x1)
+        # Minimal 1x1 white JPEG
+        img_file.write_bytes(
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
+            b"\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a"
+            b"\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\x1e"
+            b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00"
+            b"\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xda\x00"
+            b"\x08\x01\x01\x00\x00?\x00\xf5\x0a\xff\xd9"
+        )
+
+        # VisDrone annotation format: left,top,width,height,score,category,truncation,occlusion
+        (ann_dir / "test_img.txt").write_text("10,10,50,50,1,1,0,0\n")
+
+        out_path = tmp_path / "out"
+        out_path.mkdir()
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.num_classes = 11
+        trainer._prepare_dataset(out_path, img_dir, ann_dir, None, None)
+
+        # Verify structure
+        assert (out_path / "data.yaml").exists(), "data.yaml must be created"
+        assert (out_path / "train" / "images").is_dir(), "train/images must exist"
+        assert (out_path / "train" / "labels").is_dir(), "train/labels must exist"
+
+        cfg = yaml.safe_load((out_path / "data.yaml").read_text())
+        assert cfg["nc"] == 11
+        assert cfg["train"] == "train/images"
+        assert "val" in cfg

@@ -367,10 +367,13 @@ def evaluate_rfdetr(
         detections = model.predict(pil_img, threshold=score_threshold)
 
         if len(detections) > 0:
+            # rfdetr outputs 0-based class IDs (YOLO convention: 0=pedestrian).
+            # VisDroneDataset returns 1-based labels (VisDrone convention: 1=pedestrian).
+            # Adding 1 aligns predictions with ground truth for compute_metrics and _coco_map.
             pred = {
                 "boxes": torch.from_numpy(detections.xyxy).float(),
                 "scores": torch.from_numpy(detections.confidence).float(),
-                "labels": torch.from_numpy(detections.class_id).long(),
+                "labels": torch.from_numpy(detections.class_id + 1).long(),
             }
         else:
             pred = {

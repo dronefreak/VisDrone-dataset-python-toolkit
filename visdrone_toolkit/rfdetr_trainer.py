@@ -1,41 +1,39 @@
-"""RF-DETR training via the rfdetr package.
+"""RF-DETR training via the rfdetr package (YOLO format).
 
 RF-DETR (Roboflow DETR) is a transformer-based detector built on top of DINOv2.
-Training is delegated to the rfdetr package's PyTorch Lightning stack.
+Training is delegated to the rfdetr package's native engine.
 
-What this trainer handles:
-- Filtering the COCO JSON to remove the ``others`` category (consistency with YOLO pipeline)
-- Creating a temp dataset directory with symlinked images + filtered annotations
-- Calling rfdetr's native training engine
-- Returning a standardised result dict with model_path and output_dir
+This trainer uses the **YOLO format** (same raw data as the YOLO/RT-DETR pipeline):
+- Raw VisDrone annotations are converted on-the-fly with ``convert_to_yolo``
+- No separate COCO JSON dataset is needed
+- ``data/VisDrone2019-DET-train/`` and ``data/VisDrone2019-DET-val/`` work directly
 
-Dataset format required by rfdetr (Roboflow COCO):
-    <dataset_dir>/
+Dataset structure written to a temp directory for rfdetr's YOLO loader:
+    <tmp>/
+        data.yaml
         train/
-            _annotations.coco.json
-            image1.jpg
-            ...
+            images/   (symlinked from source)
+            labels/   (YOLO .txt from convert_to_yolo)
         valid/
-            _annotations.coco.json
-            ...
-        test/          (optional)
-            _annotations.coco.json
-            ...
+            images/
+            labels/
 
-The VisDrone data is already pre-prepared at ``data/VisDrone2019-DET-RF-DETR/``.
-
-Requires: pip install "rfdetr[train]" pytorch_lightning
+Requires: pip install rfdetr
 """
 
 from __future__ import annotations
 
-import json
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
-# VisDrone classes after filtering ``ignored-regions`` (class 0) AND ``others``
+import yaml
+
+from visdrone_toolkit.converters.visdrone_to_yolo import convert_to_yolo
+
+# VisDrone classes after filtering ``ignored-regions`` (category 0).
+# Consistent with the YOLO pipeline (_VISDRONE_CLASSES in yolo_trainer.py).
+# Class IDs here are 0-based: pedestrian=0, ..., others=10.
 _RFDETR_CLASSES = [
     "pedestrian",
     "people",
@@ -47,10 +45,8 @@ _RFDETR_CLASSES = [
     "awning-tricycle",
     "bus",
     "motor",
-]  # 10 classes (no ignored-regions, no others)
-
-# Category name to exclude from COCO JSON (id=11 in the pre-prepared dataset)
-_EXCLUDED_CATEGORY = "others"
+    "others",
+]  # 11 classes (ignored-regions filtered by convert_to_yolo)
 
 # Map from registered model name → rfdetr class name
 _MODEL_CLASS_MAP = {
@@ -60,30 +56,38 @@ _MODEL_CLASS_MAP = {
     "rfdetr-large": "RFDETRLarge",
 }
 
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+
 
 class RFDETRTrainer:
-    """Trains RF-DETR models using the rfdetr PyTorch Lightning engine.
+    """Trains RF-DETR models using the rfdetr native engine (YOLO format).
 
     Handles:
-    - Filtering ``others`` from the Roboflow COCO JSON annotations
-    - Symlinking images into a temp directory for filtered training
+    - Converting VisDrone native annotations to YOLO format (on the fly, in a temp dir)
+    - Writing the data.yaml required by rfdetr's YOLO dataset loader
     - Delegating training to the rfdetr package's native engine
-    - Returning standardised {model_path, output_dir} result
+    - Returning a standardised {model_path, output_dir} result
 
     Does NOT re-implement RF-DETR's internal loss or training loop.
+    Uses the same raw VisDrone data as the YOLO pipeline — no COCO JSON needed.
     """
+
+    # RF-DETR-safe default LR. The global train.py default (0.005) is calibrated
+    # for YOLO/torchvision SGD and is ~50× too large for RF-DETR's AdamW encoder.
+    _DEFAULT_LR: float = 1e-4
+    _DEFAULT_LR_ENCODER_RATIO: float = 1.5  # lr_encoder = lr * ratio
 
     def __init__(
         self,
         model_name: str,
-        num_classes: int = 10,
+        num_classes: int = 11,
         device: str = "cuda",
     ) -> None:
         """Initialize RFDETRTrainer.
 
         Args:
             model_name: Registered model name, e.g. 'rfdetr-large'
-            num_classes: Number of detection classes (default 10 for VisDrone w/o ignored + others)
+            num_classes: Number of detection classes (default 11 for VisDrone w/o ignored-regions)
             device: Device string ('cuda', 'cpu', 'cuda:0')
         """
         if model_name not in _MODEL_CLASS_MAP:
@@ -96,7 +100,7 @@ class RFDETRTrainer:
             import rfdetr as _rfdetr_pkg  # noqa: F401
         except ImportError as err:
             raise ImportError(
-                "rfdetr is required for RF-DETR training. " "Install with: pip install rfdetr"
+                "rfdetr is required for RF-DETR training. Install with: pip install rfdetr"
             ) from err
 
         self._model_name = model_name
@@ -108,15 +112,12 @@ class RFDETRTrainer:
     # Public API
     # ------------------------------------------------------------------
 
-    # RF-DETR-safe default LR. The global train.py default (0.005) is calibrated
-    # for YOLO/torchvision SGD and is ~50× too large for RF-DETR's AdamW encoder,
-    # causing NaN outputs on the first epoch.  Always use this as the fallback.
-    _DEFAULT_LR: float = 1e-4
-    _DEFAULT_LR_ENCODER_RATIO: float = 1.5  # lr_encoder = lr * ratio
-
     def train(
         self,
-        dataset_dir: str | Path,
+        train_img_dir: str | Path,
+        train_ann_dir: str | Path,
+        val_img_dir: str | Path | None = None,
+        val_ann_dir: str | Path | None = None,
         epochs: int = 100,
         batch_size: int = 4,
         lr: float = _DEFAULT_LR,
@@ -128,46 +129,43 @@ class RFDETRTrainer:
         amp_dtype: str = "bf16",
         **extra_kwargs: Any,
     ) -> dict[str, Any]:
-        """Train an RF-DETR model on VisDrone (Roboflow COCO) data.
+        """Train an RF-DETR model on VisDrone data (YOLO format).
 
-        Filters ``others`` annotations from the COCO JSON, writes a temp
-        dataset directory with symlinked images, then calls rfdetr's training
-        engine.
+        Converts VisDrone annotations to YOLO format in a temporary directory,
+        writes data.yaml, then calls rfdetr's native training engine.
 
         Args:
-            dataset_dir: Path to Roboflow COCO format dataset
-                         (e.g. ``data/VisDrone2019-DET-RF-DETR/``).
+            train_img_dir: Path to training images.
+            train_ann_dir: Path to VisDrone training annotations.
+            val_img_dir: Path to validation images (optional).
+            val_ann_dir: Path to VisDrone validation annotations (optional).
             epochs: Number of training epochs.
             batch_size: Per-GPU batch size. Use ``"auto"`` to let rfdetr choose.
             lr: Initial learning rate. Defaults to 1e-4 (RF-DETR's safe value).
-                Do NOT pass the global train.py default (0.005) — it will cause
-                NaN losses on the first epoch.
+                Do NOT use the global train.py default (0.005) — causes NaN losses.
             output_dir: Where to save checkpoints and logs.
             workers: Number of DataLoader workers.
             grad_accum_steps: Gradient accumulation steps.
             use_ema: Whether to use EMA (recommended for RF-DETR).
-            warmup_epochs: LR warmup epochs. Defaults to 5 to avoid NaN from
-                the randomly-initialised detection head at the start of training.
-            amp_dtype: Mixed-precision dtype. ``"bf16"`` (default) is more stable
-                than ``"fp16"`` on Ampere+ GPUs for transformer decoders.
+            warmup_epochs: LR warmup epochs (default 5).
+            amp_dtype: Mixed-precision dtype. ``"bf16"`` is more stable on Ampere+ GPUs.
             **extra_kwargs: Forwarded to rfdetr's TrainConfig.
 
         Returns:
             dict with keys ``results``, ``model_path``, ``output_dir``.
         """
-        dataset_dir = Path(dataset_dir).resolve()
         output_dir = Path(output_dir).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory(prefix="visdrone_rfdetr_") as tmp:
             tmp_path = Path(tmp)
-            filtered_dir = self._prepare_dataset(tmp_path, dataset_dir)
+            self._prepare_dataset(tmp_path, train_img_dir, train_ann_dir, val_img_dir, val_ann_dir)
 
             model = self._build_model()
 
             results = model.train(
-                dataset_dir=str(filtered_dir),
-                dataset_file="roboflow",
+                dataset_dir=str(tmp_path),
+                dataset_file="yolo",
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
@@ -206,83 +204,80 @@ class RFDETRTrainer:
         cls = getattr(rfdetr, self._rfdetr_class_name)
         return cls(num_classes=self.num_classes)
 
-    def _prepare_dataset(self, tmp_path: Path, dataset_dir: Path) -> Path:
-        """Create a filtered dataset in tmp_path.
+    def _prepare_dataset(
+        self,
+        tmp_path: Path,
+        train_img_dir: str | Path,
+        train_ann_dir: str | Path,
+        val_img_dir: str | Path | None,
+        val_ann_dir: str | Path | None,
+    ) -> None:
+        """Convert VisDrone data to YOLO format and write data.yaml.
 
-        For each split (train, valid, test):
-        - Creates a real directory
-        - Symlinks each image file from the source split directory
-        - Writes a filtered ``_annotations.coco.json`` (``others`` removed)
+        Creates the directory structure expected by rfdetr's YOLO loader:
+            tmp_path/
+                data.yaml
+                train/images/   (symlinks to source images)
+                train/labels/   (YOLO .txt annotations)
+                valid/images/   (optional)
+                valid/labels/   (optional)
 
         Args:
             tmp_path: Temporary directory root.
-            dataset_dir: Source Roboflow COCO dataset directory.
-
-        Returns:
-            Path to the filtered dataset root (same as tmp_path).
+            train_img_dir: VisDrone training images directory.
+            train_ann_dir: VisDrone training annotations directory.
+            val_img_dir: VisDrone validation images directory (optional).
+            val_ann_dir: VisDrone validation annotations directory (optional).
         """
-        for split in ("train", "valid", "test"):
-            src_split = dataset_dir / split
-            if not src_split.exists():
-                continue  # test split is optional
+        names = _RFDETR_CLASSES[: self.num_classes]
 
-            dst_split = tmp_path / split
-            dst_split.mkdir()
+        # Training split
+        train_images = tmp_path / "train" / "images"
+        train_labels = tmp_path / "train" / "labels"
+        train_images.mkdir(parents=True)
+        train_labels.mkdir(parents=True)
+        self._symlink_images(Path(train_img_dir), train_images)
+        convert_to_yolo(
+            image_dir=train_img_dir,
+            annotation_dir=train_ann_dir,
+            output_dir=train_labels,
+            filter_ignored=True,
+            filter_crowd=True,
+            create_yaml=False,
+        )
 
-            # Symlink each image file
-            self._symlink_images(src_split, dst_split)
+        data: dict[str, Any] = {
+            "names": names,
+            "nc": len(names),
+            "train": "train/images",
+            "val": "valid/images",  # rfdetr YOLO loader requires this key
+        }
 
-            # Write filtered COCO JSON
-            src_json = src_split / "_annotations.coco.json"
-            if src_json.exists():
-                dst_json = dst_split / "_annotations.coco.json"
-                self._filter_coco_json(src_json, dst_json)
+        # Validation split (optional)
+        if val_img_dir and val_ann_dir:
+            val_images = tmp_path / "valid" / "images"
+            val_labels = tmp_path / "valid" / "labels"
+            val_images.mkdir(parents=True)
+            val_labels.mkdir(parents=True)
+            self._symlink_images(Path(val_img_dir), val_images)
+            convert_to_yolo(
+                image_dir=val_img_dir,
+                annotation_dir=val_ann_dir,
+                output_dir=val_labels,
+                filter_ignored=True,
+                filter_crowd=True,
+                create_yaml=False,
+            )
 
-        return tmp_path
+        yaml_path = tmp_path / "data.yaml"
+        with open(yaml_path, "w") as fh:
+            yaml.dump(data, fh, default_flow_style=False)
 
-    def _symlink_images(self, src_dir: Path, dst_dir: Path) -> None:
-        """Create per-file image symlinks from src_dir into dst_dir.
-
-        Using per-file symlinks (not a directory symlink) so downstream code
-        that resolves symlinks can still find images.
-        """
-        image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+    @staticmethod
+    def _symlink_images(src_dir: Path, dst_dir: Path) -> None:
+        """Create per-file image symlinks from src_dir into dst_dir."""
         for img_path in src_dir.iterdir():
-            if img_path.suffix.lower() in image_extensions:
+            if img_path.suffix.lower() in _IMAGE_SUFFIXES:
                 link = dst_dir / img_path.name
                 if not link.exists():
                     link.symlink_to(img_path.resolve())
-
-    def _filter_coco_json(self, src_json: Path, dst_json: Path) -> None:
-        """Write a filtered COCO JSON removing the ``others`` category.
-
-        Args:
-            src_json: Source ``_annotations.coco.json``.
-            dst_json: Destination path for filtered JSON.
-        """
-        with open(src_json) as fh:
-            data = json.load(fh)
-
-        # Find excluded category IDs
-        excluded_ids = {
-            cat["id"] for cat in data.get("categories", []) if cat["name"] == _EXCLUDED_CATEGORY
-        }
-
-        if not excluded_ids:
-            # Nothing to filter — write as-is
-            shutil.copy2(src_json, dst_json)
-            return
-
-        filtered_categories = [cat for cat in data["categories"] if cat["id"] not in excluded_ids]
-        filtered_annotations = [
-            ann for ann in data.get("annotations", []) if ann["category_id"] not in excluded_ids
-        ]
-
-        filtered_data = {
-            **data,
-            "categories": filtered_categories,
-            "annotations": filtered_annotations,
-        }
-
-        with open(dst_json, "w") as fh:
-            json.dump(filtered_data, fh)

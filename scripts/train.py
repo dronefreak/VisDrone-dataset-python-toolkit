@@ -29,17 +29,12 @@ def parse_args():
     parser.add_argument("--available-models", action="store_true", help="Show available models")
 
     # Dataset paths
+    parser.add_argument("--train-img-dir", help="Training images directory")
     parser.add_argument(
-        "--train-img-dir",
-        help="Training images directory (for YOLO/torchvision). For RF-DETR models, pass the Roboflow COCO root dir here (e.g. data/VisDrone2019-DET-RF-DETR/).",
+        "--train-ann-dir", help="Training annotations directory (VisDrone .txt format)"
     )
-    parser.add_argument(
-        "--train-ann-dir", help="Training annotations directory (YOLO/torchvision only)"
-    )
-    parser.add_argument("--val-img-dir", help="Validation images directory (YOLO/torchvision only)")
-    parser.add_argument(
-        "--val-ann-dir", help="Validation annotations directory (YOLO/torchvision only)"
-    )
+    parser.add_argument("--val-img-dir", help="Validation images directory (optional)")
+    parser.add_argument("--val-ann-dir", help="Validation annotations directory (optional)")
 
     # Model configuration
     parser.add_argument(
@@ -121,14 +116,8 @@ def parse_args():
     if args.available_models:
         return args
 
-    # For RF-DETR, only --train-img-dir (as dataset_dir) is required
-    if _is_rfdetr_model(args.model):
-        if not args.train_img_dir:
-            parser.error(
-                "For RF-DETR models, pass the Roboflow COCO root directory as --train-img-dir "
-                "(e.g. --train-img-dir data/VisDrone2019-DET-RF-DETR/)"
-            )
-    elif not args.train_img_dir or not args.train_ann_dir:
+    # For RF-DETR, require same args as YOLO — uses raw VisDrone data, not COCO JSON
+    if not args.train_img_dir or not args.train_ann_dir:
         parser.error("--train-img-dir and --train-ann-dir are required for training")
 
     return args
@@ -225,23 +214,18 @@ def _train_ultralytics(args) -> None:
 
 
 def _train_rfdetr(args) -> None:
-    """Route RF-DETR model training to RFDETRTrainer (rfdetr / PyTorch Lightning)."""
+    """Route RF-DETR model training to RFDETRTrainer (YOLO format, rfdetr engine)."""
     from visdrone_toolkit.rfdetr_trainer import _RFDETR_CLASSES, RFDETRTrainer
 
     console.print(
-        "\n[bold yellow]RF-DETR model detected — using rfdetr PyTorch Lightning engine[/bold yellow]"
-    )
-    console.print(
-        "[dim]Note: --train-img-dir should be the Roboflow COCO root dir "
-        "(e.g. data/VisDrone2019-DET-RF-DETR/).[/dim]"
+        "\n[bold yellow]RF-DETR model detected — using rfdetr native engine (YOLO format)[/bold yellow]"
     )
     console.print(
         "[dim]Note: --multiscale, --lr-schedule, --small-anchors are ignored for RF-DETR. "
-        "Use --rfdetr-lr (default: 1e-4) and --rfdetr-warmup-epochs (default: 5) instead.[/dim]\n"
+        "Use --rfdetr-lr (default: 1e-4) and --rfdetr-warmup-epochs (default: 5).[/dim]\n"
     )
 
-    num_classes = len(_RFDETR_CLASSES)  # always 10 (filtered)
-    dataset_dir = args.train_img_dir  # reuse --train-img-dir as Roboflow COCO root
+    num_classes = len(_RFDETR_CLASSES)  # 11 (consistent with YOLO pipeline)
 
     trainer = RFDETRTrainer(
         model_name=args.model,
@@ -250,7 +234,10 @@ def _train_rfdetr(args) -> None:
     )
 
     result = trainer.train(
-        dataset_dir=dataset_dir,
+        train_img_dir=args.train_img_dir,
+        train_ann_dir=args.train_ann_dir,
+        val_img_dir=args.val_img_dir,
+        val_ann_dir=args.val_ann_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.rfdetr_lr,

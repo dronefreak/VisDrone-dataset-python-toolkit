@@ -114,6 +114,7 @@ class YOLOTrainer:
         use_amp: bool = True,
         output_dir: str | Path = "outputs",
         workers: int = 4,
+        resume: str | Path | None = None,
         **extra_kwargs: Any,
     ) -> dict[str, Any]:
         """Train a YOLO model on VisDrone data.
@@ -133,6 +134,10 @@ class YOLOTrainer:
             use_amp: Use automatic mixed precision
             output_dir: Where to save the final model and logs
             workers: Number of DataLoader workers
+            resume: Path to a ``last.pt`` checkpoint to resume from. Ultralytics
+                requires the model to be loaded from the checkpoint itself, then
+                ``resume=True`` is passed to ``model.train()``.  Epoch count,
+                optimizer state, and LR scheduler are all restored automatically.
             **extra_kwargs: Passed directly to ultralytics.YOLO.train()
 
         Returns:
@@ -147,22 +152,33 @@ class YOLOTrainer:
                 tmp_path, train_img_dir, train_ann_dir, val_img_dir, val_ann_dir
             )
 
-            model = self._UltralyticsYOLO(self._pt_name)
-
-            results = model.train(
-                data=str(dataset_yaml),
-                epochs=epochs,
-                batch=batch_size,
-                imgsz=imgsz,
-                lr0=lr,
-                amp=use_amp,
-                device=self.device,
-                workers=workers,
-                project=str(output_dir),
-                name=self._model_name,
-                exist_ok=True,
-                **extra_kwargs,
-            )
+            if resume is not None:
+                # Ultralytics resume: load model from the checkpoint, pass resume=True.
+                # The checkpoint embeds the dataset path and hyperparams, so data= and
+                # most kwargs are ignored — only device/workers/project are honoured.
+                model = self._UltralyticsYOLO(str(resume))
+                results = model.train(
+                    resume=True,
+                    device=self.device,
+                    workers=workers,
+                    **extra_kwargs,
+                )
+            else:
+                model = self._UltralyticsYOLO(self._pt_name)
+                results = model.train(
+                    data=str(dataset_yaml),
+                    epochs=epochs,
+                    batch=batch_size,
+                    imgsz=imgsz,
+                    lr0=lr,
+                    amp=use_amp,
+                    device=self.device,
+                    workers=workers,
+                    project=str(output_dir),
+                    name=self._model_name,
+                    exist_ok=True,
+                    **extra_kwargs,
+                )
 
         # Ultralytics saves best/last weights under project/name/weights/
         weights_dir = output_dir / self._model_name / "weights"

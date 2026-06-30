@@ -127,6 +127,7 @@ class RFDETRTrainer:
         use_ema: bool = True,
         warmup_epochs: float = 5.0,
         amp_dtype: str = "bf16",
+        resume: str | Path | None = None,
         **extra_kwargs: Any,
     ) -> dict[str, Any]:
         """Train an RF-DETR model on VisDrone data (YOLO format).
@@ -149,6 +150,9 @@ class RFDETRTrainer:
             use_ema: Whether to use EMA (recommended for RF-DETR).
             warmup_epochs: LR warmup epochs (default 5).
             amp_dtype: Mixed-precision dtype. ``"bf16"`` is more stable on Ampere+ GPUs.
+            resume: Path to a checkpoint (``.pth``) to resume from. Passed as
+                ``ckpt_path`` to PyTorch Lightning's ``trainer.fit()``, so epoch
+                count, optimizer state, and LR scheduler are all restored.
             **extra_kwargs: Forwarded to rfdetr's TrainConfig.
 
         Returns:
@@ -163,7 +167,7 @@ class RFDETRTrainer:
 
             model = self._build_model()
 
-            results = model.train(
+            train_kwargs: dict[str, Any] = dict(
                 dataset_dir=str(tmp_path),
                 dataset_file="yolo",
                 epochs=epochs,
@@ -179,6 +183,9 @@ class RFDETRTrainer:
                 device=self.device,
                 **extra_kwargs,
             )
+            if resume is not None:
+                train_kwargs["resume"] = str(resume)
+            results = model.train(**train_kwargs)
 
         # RF-DETR saves checkpoints to output_dir/
         best_ckpt = output_dir / "best_checkpoint.pth"

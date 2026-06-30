@@ -205,6 +205,7 @@ def _train_ultralytics(args) -> None:
         use_amp=args.amp,
         output_dir=args.output_dir,
         workers=args.num_workers,
+        resume=args.resume,
     )
 
     console.print("\n[bold green]Training complete![/bold green]")
@@ -245,6 +246,7 @@ def _train_rfdetr(args) -> None:
         workers=args.num_workers,
         grad_accum_steps=args.accumulation_steps,
         warmup_epochs=args.rfdetr_warmup_epochs,
+        resume=args.resume,
     )
 
     console.print("\n[bold green]Training complete![/bold green]")

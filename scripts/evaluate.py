@@ -336,13 +336,34 @@ def evaluate_rfdetr(
         raise ImportError("pip install rfdetr") from err
 
     from visdrone_toolkit.dataset import VisDroneDataset
+    from visdrone_toolkit.rfdetr_trainer import _MODEL_CLASS_MAP
 
     console.print(
         f"\n[bold cyan]RF-DETR evaluation — using rfdetr checkpoint loader[/bold cyan] "
         f"[dim]({model_name}, requested classes: {num_classes})[/dim]"
     )
 
-    model = _rfdetr_pkg.from_checkpoint(str(checkpoint_path), device=device)
+    checkpoint_path = str(checkpoint_path)
+
+    model = None
+    if hasattr(_rfdetr_pkg, "from_checkpoint"):
+        model = _rfdetr_pkg.from_checkpoint(checkpoint_path, device=device)
+    else:
+        variant_class_name = _MODEL_CLASS_MAP.get(model_name, "RFDETRLarge")
+        loader_candidates = [
+            getattr(_rfdetr_pkg, variant_class_name, None),
+            getattr(_rfdetr_pkg, "RFDETR", None),
+        ]
+        for loader_cls in loader_candidates:
+            if loader_cls is not None and hasattr(loader_cls, "from_checkpoint"):
+                model = loader_cls.from_checkpoint(checkpoint_path, device=device)
+                break
+    if model is None:
+        raise AttributeError(
+            "Installed rfdetr package does not expose a compatible checkpoint loader. "
+            "Expected one of: rfdetr.from_checkpoint(), rfdetr.RFDETR.from_checkpoint(), "
+            "or the variant class's from_checkpoint()."
+        )
 
     # Load dataset using VisDroneDataset to get GT annotations
     dataset = VisDroneDataset(

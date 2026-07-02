@@ -268,6 +268,65 @@ class TestEvaluateTorchvisionIntegration:
         assert "recall" in metrics
         assert "f1" in metrics
         assert metrics["num_images"] >= 0
+        assert MockDS.call_args.kwargs["multiscale_training"] is False
+
+
+class _FakeRFDETRDetections:
+    xyxy = np.array([[0.0, 0.0, 10.0, 10.0]], dtype=np.float32)
+    confidence = np.array([0.9], dtype=np.float32)
+    class_id = np.array([0], dtype=np.int64)
+
+    def __len__(self):
+        return 1
+
+
+class TestEvaluateRFDETRPath:
+    def test_rfdetr_uses_checkpoint_loader_and_fixed_scale_targets(self, tmp_path):
+        from scripts.evaluate import evaluate_rfdetr
+
+        fake_model = MagicMock()
+        fake_model.predict.return_value = _FakeRFDETRDetections()
+        fake_rfdetr = SimpleNamespace(from_checkpoint=MagicMock(return_value=fake_model))
+
+        fake_target = {
+            "boxes": torch.tensor([[0.0, 0.0, 10.0, 10.0]]),
+            "labels": torch.tensor([1]),
+        }
+        fake_dataset = MagicMock()
+        fake_dataset.__len__ = MagicMock(return_value=1)
+        fake_dataset.image_files = [tmp_path / "img.jpg"]
+        fake_dataset.__getitem__.return_value = (torch.rand(3, 10, 10), fake_target)
+
+        with patch.dict(sys.modules, {"rfdetr": fake_rfdetr}):
+            with patch(
+                "visdrone_toolkit.dataset.VisDroneDataset", return_value=fake_dataset
+            ) as MockDS:
+                with patch("PIL.Image.open") as mock_open:
+                    with patch(
+                        "scripts.evaluate.compute_metrics",
+                        return_value={"precision": 1.0, "recall": 1.0, "f1": 1.0},
+                    ) as mock_compute:
+                        with patch("scripts.evaluate._per_class_metrics", return_value={}):
+                            with patch("scripts.evaluate._coco_map", return_value=(1.0, 1.0)):
+                                mock_open.return_value.convert.return_value = MagicMock()
+                                metrics = evaluate_rfdetr(
+                                    checkpoint_path=str(tmp_path / "checkpoint.pth"),
+                                    image_dir=tmp_path,
+                                    annotation_dir=tmp_path,
+                                    num_classes=11,
+                                    device="cpu",
+                                    output_dir=tmp_path,
+                                    model_name="rfdetr-nano",
+                                )
+
+        assert metrics["precision"] == pytest.approx(1.0)
+        assert MockDS.call_args.kwargs["multiscale_training"] is False
+        fake_rfdetr.from_checkpoint.assert_called_once_with(
+            str(tmp_path / "checkpoint.pth"),
+            device="cpu",
+        )
+        predictions = mock_compute.call_args.args[0]
+        assert predictions[0]["labels"].tolist() == [1]
 
 
 class TestEvaluateYoloPath:

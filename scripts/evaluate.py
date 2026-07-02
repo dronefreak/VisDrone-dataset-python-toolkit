@@ -223,6 +223,7 @@ def evaluate_torchvision(
         annotation_dir=str(annotation_dir),
         filter_ignored=True,
         filter_crowd=True,
+        multiscale_training=False,
     )
     loader = DataLoader(
         dataset,
@@ -335,20 +336,21 @@ def evaluate_rfdetr(
         raise ImportError("pip install rfdetr") from err
 
     from visdrone_toolkit.dataset import VisDroneDataset
-    from visdrone_toolkit.rfdetr_trainer import _MODEL_CLASS_MAP, _RFDETR_CLASSES
 
-    console.print("\n[bold cyan]RF-DETR evaluation — using rfdetr predict engine[/bold cyan]")
+    console.print(
+        f"\n[bold cyan]RF-DETR evaluation — using rfdetr checkpoint loader[/bold cyan] "
+        f"[dim]({model_name}, requested classes: {num_classes})[/dim]"
+    )
 
-    names = _RFDETR_CLASSES[:num_classes] if num_classes < len(_RFDETR_CLASSES) else _RFDETR_CLASSES
-    cls_name = _MODEL_CLASS_MAP.get(model_name, "RFDETRLarge")
-    model_cls = getattr(_rfdetr_pkg, cls_name)
-    model = model_cls(pretrain_weights=str(checkpoint_path), num_classes=len(names), device=device)
+    model = _rfdetr_pkg.from_checkpoint(str(checkpoint_path), device=device)
 
     # Load dataset using VisDroneDataset to get GT annotations
     dataset = VisDroneDataset(
         image_dir=str(image_dir),
         annotation_dir=str(annotation_dir),
         filter_ignored=True,
+        filter_crowd=True,
+        multiscale_training=False,
     )
 
     import time

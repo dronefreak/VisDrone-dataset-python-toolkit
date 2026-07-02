@@ -370,6 +370,70 @@ class TestEvaluateRFDETRPath:
             device="cpu",
         )
 
+    def test_rfdetr_falls_back_to_constructor_with_checkpoint_weights(self, tmp_path):
+        from scripts.evaluate import evaluate_rfdetr
+
+        fake_model = MagicMock()
+        fake_model.predict.return_value = _FakeRFDETRDetections()
+        ctor_calls = []
+
+        class _CtorOnlyRFDETRNano:
+            def __init__(self, **kwargs):
+                ctor_calls.append(kwargs)
+
+            def predict(self, *_args, **_kwargs):
+                return _FakeRFDETRDetections()
+
+        fake_variant_cls = _CtorOnlyRFDETRNano
+        fake_rfdetr = SimpleNamespace(RFDETRNano=fake_variant_cls)
+
+        fake_target = {
+            "boxes": torch.tensor([[0.0, 0.0, 10.0, 10.0]]),
+            "labels": torch.tensor([1]),
+        }
+        fake_dataset = MagicMock()
+        fake_dataset.__len__ = MagicMock(return_value=1)
+        fake_dataset.image_files = [tmp_path / "img.jpg"]
+        fake_dataset.__getitem__.return_value = (torch.rand(3, 10, 10), fake_target)
+
+        fake_ckpt = {
+            "args": SimpleNamespace(
+                model_name="RFDETRNano",
+                num_classes=11,
+                resolution=384,
+            )
+        }
+
+        with patch.dict(sys.modules, {"rfdetr": fake_rfdetr}):
+            with patch("visdrone_toolkit.dataset.VisDroneDataset", return_value=fake_dataset):
+                with patch("PIL.Image.open") as mock_open:
+                    with patch("scripts.evaluate.torch.load", return_value=fake_ckpt):
+                        with patch(
+                            "scripts.evaluate.compute_metrics",
+                            return_value={"precision": 1.0, "recall": 1.0, "f1": 1.0},
+                        ):
+                            with patch("scripts.evaluate._per_class_metrics", return_value={}):
+                                with patch("scripts.evaluate._coco_map", return_value=(1.0, 1.0)):
+                                    mock_open.return_value.convert.return_value = MagicMock()
+                                    evaluate_rfdetr(
+                                        checkpoint_path=str(tmp_path / "checkpoint.pth"),
+                                        image_dir=tmp_path,
+                                        annotation_dir=tmp_path,
+                                        num_classes=11,
+                                        device="cpu",
+                                        output_dir=tmp_path,
+                                        model_name="rfdetr-nano",
+                                    )
+
+        assert ctor_calls == [
+            {
+                "pretrain_weights": str(tmp_path / "checkpoint.pth"),
+                "device": "cpu",
+                "num_classes": 11,
+                "resolution": 384,
+            }
+        ]
+
 
 class TestEvaluateYoloPath:
     def test_evaluate_yolo_extracts_metrics(self):

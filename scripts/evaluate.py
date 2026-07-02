@@ -359,10 +359,35 @@ def evaluate_rfdetr(
                 model = loader_cls.from_checkpoint(checkpoint_path, device=device)
                 break
     if model is None:
+        # Older rfdetr versions may not expose any checkpoint loader API.
+        # Their constructors still accept `pretrain_weights=...` and can load a
+        # training checkpoint directly, so recover the variant and metadata from
+        # the checkpoint ourselves and instantiate the model class manually.
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        ckpt_args = ckpt.get("args", {})
+        if not isinstance(ckpt_args, dict):
+            ckpt_args = vars(ckpt_args)
+
+        variant_class_name = ckpt_args.get("model_name") or _MODEL_CLASS_MAP.get(
+            model_name, "RFDETRLarge"
+        )
+        variant_cls = getattr(_rfdetr_pkg, variant_class_name, None)
+        if variant_cls is not None:
+            model_kwargs: dict[str, Any] = {
+                "pretrain_weights": checkpoint_path,
+                "device": device,
+            }
+            if ckpt_args.get("num_classes") is not None:
+                model_kwargs["num_classes"] = ckpt_args["num_classes"]
+            if ckpt_args.get("resolution") is not None:
+                model_kwargs["resolution"] = ckpt_args["resolution"]
+            model = variant_cls(**model_kwargs)
+    if model is None:
         raise AttributeError(
             "Installed rfdetr package does not expose a compatible checkpoint loader. "
             "Expected one of: rfdetr.from_checkpoint(), rfdetr.RFDETR.from_checkpoint(), "
-            "or the variant class's from_checkpoint()."
+            "the variant class's from_checkpoint(), or constructor loading via "
+            "pretrain_weights=<checkpoint>."
         )
 
     # Load dataset using VisDroneDataset to get GT annotations

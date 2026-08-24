@@ -55,7 +55,7 @@ def get_training_augmentation():
     label_fields=["labels"],
     min_visibility=0.01,  # এই লাইন যোগ করুন
     min_area=8.0,
-),
+)
     )
 
 

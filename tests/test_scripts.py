@@ -760,6 +760,6 @@ class TestYOLOTrainerAbsolutePath:
 
         if "project" in captured:
             project_path = Path(captured["project"])
-            assert (
-                project_path.is_absolute()
-            ), f"project must be absolute; got {captured['project']!r}"
+            assert project_path.is_absolute(), (
+                f"project must be absolute; got {captured['project']!r}"
+            )

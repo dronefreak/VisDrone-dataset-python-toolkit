@@ -67,7 +67,7 @@ def check_out_of_bounds_boxes(
             if w <= 0 or h <= 0:
                 file_issues.append((idx, f"Box {idx}: width={w}, height={h} invalid"))
             if x + w > 1 or y + h > 1:
-                file_issues.append((idx, f"Box {idx}: x+w={x+w}, y+h={y+h} out of bounds"))
+                file_issues.append((idx, f"Box {idx}: x+w={x + w}, y+h={y + h} out of bounds"))
 
         if file_issues:
             issues.append((str(ann_file), file_issues))

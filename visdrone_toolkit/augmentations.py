@@ -51,11 +51,11 @@ def get_training_augmentation():
             A.CoarseDropout(max_holes=8, max_height=32, max_width=32, fill_value=0, p=0.2),
         ],
         bbox_params=A.BboxParams(
-            format="pascal_voc",
-            label_fields=["labels"],
-            min_visibility=0.25,
-            min_area=8.0,
-        ),
+    format="pascal_voc",
+    label_fields=["labels"],
+    min_visibility=0.01,  # এই লাইন যোগ করুন
+    min_area=8.0,
+),
     )
 
 
@@ -64,58 +64,43 @@ def get_validation_augmentation():
     return None
 
 
-# Training hyperparameters optimized for VisDrone
 TRAINING_CONFIG = {
-    # Model
     "model": "fasterrcnn_resnet50",
     "pretrained": True,
-    # Training
     "epochs": 100,
     "batch_size": 2,
-    "accumulation_steps": 2,  # Effective batch size = 4
+    "accumulation_steps": 2,
     "amp": True,
-    # Optimizer
-    "lr": 0.005,  # Start higher
+    "lr": 0.005,
     "momentum": 0.9,
     "weight_decay": 0.0005,
-    # Learning rate schedule
-    "lr_schedule": "multistep",  # Step at epochs 60, 80
+    "lr_schedule": "multistep",
     "lr_milestones": [60, 80],
     "lr_gamma": 0.1,
-    # Early stopping
-    "patience": 15,  # Stop if no improvement for 15 epochs
-    # Data
+    "patience": 15,
     "num_workers": 4,
     "filter_ignored": True,
     "filter_crowd": True,
-    # Evaluation
-    "eval_score_threshold": 0.3,  # Lower threshold for better recall
-    "nms_threshold": 0.3,  # Lower NMS for dense scenes
+    "eval_score_threshold": 0.3,
+    "nms_threshold": 0.3,
 }
 
 
 def get_anchor_generator():
-    """
-    Custom anchor sizes for small objects in VisDrone.
-
-    Default anchors are too large for tiny people/cars from drones.
-    """
     from torchvision.models.detection.anchor_utils import AnchorGenerator
-
     return AnchorGenerator(
-        sizes=((16,), (32,), (64,), (128,), (256,)),  # Smaller than default
+        sizes=((16,), (32,), (64,), (128,), (256,)),
         aspect_ratios=((0.5, 1.0, 2.0),) * 5,
     )
 
 
-# Enhanced model configuration
 ENHANCED_MODEL_CONFIG = {
     "fasterrcnn_resnet50": {
         "min_size": 600,
-        "max_size": 800,  # Keep at 800 to avoid OOM
-        "box_score_thresh": 0.05,  # Lower threshold during training
-        "box_nms_thresh": 0.3,  # More aggressive NMS
-        "box_detections_per_img": 300,  # Allow more detections per image
+        "max_size": 800,
+        "box_score_thresh": 0.05,
+        "box_nms_thresh": 0.3,
+        "box_detections_per_img": 300,
         "rpn_pre_nms_top_n_train": 2000,
         "rpn_post_nms_top_n_train": 2000,
         "rpn_pre_nms_top_n_test": 1000,
@@ -125,18 +110,10 @@ ENHANCED_MODEL_CONFIG = {
 
 
 def get_optimizer_with_warmup(model, config, num_batches_per_epoch):
-    """
-    Create optimizer with learning rate warmup.
-
-    Warmup helps with training stability.
-    """
     params = [p for p in model.parameters() if p.requires_grad]
-
     optimizer = torch.optim.SGD(
         params, lr=config["lr"], momentum=config["momentum"], weight_decay=config["weight_decay"]
     )
-
-    # Warmup for first 500 iterations
     warmup_iters = min(500, num_batches_per_epoch)
 
     def warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor=0.001):
@@ -145,16 +122,13 @@ def get_optimizer_with_warmup(model, config, num_batches_per_epoch):
                 return 1
             alpha = float(x) / warmup_iters
             return warmup_factor * (1 - alpha) + alpha
-
         return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
     warmup_scheduler = warmup_lr_scheduler(optimizer, warmup_iters)
-
     return optimizer, warmup_scheduler
 
 
 def get_lr_scheduler(optimizer, config):
-    """Create learning rate scheduler."""
     if config["lr_schedule"] == "multistep":
         return torch.optim.lr_scheduler.MultiStepLR(
             optimizer, milestones=config["lr_milestones"], gamma=config["lr_gamma"]
@@ -162,5 +136,4 @@ def get_lr_scheduler(optimizer, config):
     elif config["lr_schedule"] == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config["epochs"])
     else:
-        # Default step scheduler
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)

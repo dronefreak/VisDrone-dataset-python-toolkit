@@ -51,11 +51,11 @@ def get_training_augmentation():
             A.CoarseDropout(max_holes=8, max_height=32, max_width=32, fill_value=0, p=0.2),
         ],
         bbox_params=A.BboxParams(
-    format="pascal_voc",
-    label_fields=["labels"],
-    min_visibility=0.01,  # এই লাইন যোগ করুন
-    min_area=8.0,
-),
+            format="pascal_voc",
+            label_fields=["labels"],
+            min_visibility=0.01,  # এই লাইন যোগ করুন
+            min_area=8.0,
+        ),
     )
 
 
@@ -88,6 +88,7 @@ TRAINING_CONFIG = {
 
 def get_anchor_generator():
     from torchvision.models.detection.anchor_utils import AnchorGenerator
+
     return AnchorGenerator(
         sizes=((16,), (32,), (64,), (128,), (256,)),
         aspect_ratios=((0.5, 1.0, 2.0),) * 5,
@@ -122,6 +123,7 @@ def get_optimizer_with_warmup(model, config, num_batches_per_epoch):
                 return 1
             alpha = float(x) / warmup_iters
             return warmup_factor * (1 - alpha) + alpha
+
         return torch.optim.lr_scheduler.LambdaLR(optimizer, f)
 
     warmup_scheduler = warmup_lr_scheduler(optimizer, warmup_iters)

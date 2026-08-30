@@ -71,18 +71,16 @@ def parse_args() -> argparse.Namespace:
     # Output
     parser.add_argument("--output-dir", default="eval_outputs", help="Output directory")
     parser.add_argument("--save-predictions", action="store_true", help="Save predictions JSON")
-    
+
     # 🆕 NEW: Small object detection metrics
     parser.add_argument(
-        "--small-object-threshold", 
-        type=float, 
-        default=32, 
-        help="Max area (pixels) for small object classification"
+        "--small-object-threshold",
+        type=float,
+        default=32,
+        help="Max area (pixels) for small object classification",
     )
     parser.add_argument(
-        "--benchmark", 
-        action="store_true", 
-        help="Run inference speed benchmark with percentiles"
+        "--benchmark", action="store_true", help="Run inference speed benchmark with percentiles"
     )
 
     return parser.parse_args()
@@ -92,81 +90,89 @@ def parse_args() -> argparse.Namespace:
 # 🆕 NEW: Small object detection metrics
 # ---------------------------------------------------------------------------
 
+
 def compute_small_object_metrics(
-    predictions: list[dict], 
-    targets: list[dict], 
+    predictions: list[dict],
+    targets: list[dict],
     iou_threshold: float,
-    small_area_threshold: int = 32
+    small_area_threshold: int = 32,
 ) -> dict[str, float]:
     """
     Compute mAP specifically for small objects (< 32x32 pixels).
-    
+
     Args:
         predictions: List of prediction dicts with boxes, labels, scores
         targets: List of target dicts with boxes, labels
         iou_threshold: IoU threshold for matching
         small_area_threshold: Max area (pixels) for small object
-    
+
     Returns:
         Dictionary with small object metrics
     """
     from visdrone_toolkit.utils import box_iou
-    
+
     small_tp = 0
     small_fp = 0
     small_fn = 0
     total_small_gt = 0
-    
+
     for pred, tgt in zip(predictions, targets):
         # Get ground truth boxes and filter for small objects
         gt_boxes = tgt["boxes"].cpu().numpy()
         gt_labels = tgt["labels"].cpu().numpy()
-        
+
         # Calculate areas
         gt_areas = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
         small_gt_mask = gt_areas < (small_area_threshold * small_area_threshold)
         small_gt_boxes = gt_boxes[small_gt_mask]
         small_gt_labels = gt_labels[small_gt_mask]
         total_small_gt += len(small_gt_boxes)
-        
+
         if len(small_gt_boxes) == 0:
             continue
-            
+
         # Get predictions
         pred_boxes = pred.get("boxes", torch.zeros(0, 4)).cpu().numpy()
         pred_scores = pred.get("scores", torch.zeros(0)).cpu().numpy()
         pred_labels = pred.get("labels", torch.zeros(0, dtype=torch.long)).cpu().numpy()
-        
+
         # Filter predictions by matching class and confidence
         matched_gt = set()
-        for i, (pb, ps, pl) in enumerate(zip(pred_boxes, pred_scores, pred_labels)):
+        for pb, _ps, pl in zip(pred_boxes, pred_scores, pred_labels):
             # Find matching ground truth with same class
-            matching_gt = [j for j, (gb, gl) in enumerate(zip(small_gt_boxes, small_gt_labels)) 
-                          if gl == pl and j not in matched_gt]
-            
+            matching_gt = [
+                j
+                for j, (gb, gl) in enumerate(zip(small_gt_boxes, small_gt_labels))
+                if gl == pl and j not in matched_gt
+            ]
+
             if not matching_gt:
                 small_fp += 1
                 continue
-                
+
             # Compute IoU with matching ground truths
             pb_tensor = torch.tensor(pb).unsqueeze(0)
             gt_tensor = torch.tensor(small_gt_boxes[matching_gt])
             ious = box_iou(pb_tensor, gt_tensor)
             best_iou, best_idx = ious.max(dim=1)
-            
+
             if best_iou >= iou_threshold:
                 small_tp += 1
                 matched_gt.add(matching_gt[best_idx.item()])
             else:
                 small_fp += 1
-        
+
         small_fn += len(small_gt_boxes) - len(matched_gt)
-    
+
     # Compute metrics
     small_precision = small_tp / (small_tp + small_fp) if (small_tp + small_fp) > 0 else 0.0
     small_recall = small_tp / (small_tp + small_fn) if (small_tp + small_fn) > 0 else 0.0
-    small_f1 = 2 * small_precision * small_recall / (small_precision + small_recall) if (small_precision + small_recall) > 0 else 0.0
-    
+    small_f1 = (
+        2 * small_precision * small_recall / (small_precision + small_recall)
+        if (small_precision + small_recall) > 0
+        else 0.0
+    )
+
     return {
         "small_objects_precision": small_precision,
         "small_objects_recall": small_recall,
@@ -179,6 +185,7 @@ def compute_small_object_metrics(
 # 🆕 NEW: Inference speed benchmark with percentiles
 # ---------------------------------------------------------------------------
 
+
 def benchmark_inference_speed(
     model: torch.nn.Module,
     dataset,
@@ -189,7 +196,7 @@ def benchmark_inference_speed(
 ) -> dict[str, float]:
     """
     Benchmark inference speed with percentile statistics.
-    
+
     Args:
         model: PyTorch model
         dataset: VisDroneDataset
@@ -197,12 +204,12 @@ def benchmark_inference_speed(
         num_workers: Number of data loader workers
         device: Device to run on
         num_runs: Number of runs for benchmark
-    
+
     Returns:
         Dictionary with speed metrics (ms/image, p50, p95, p99)
     """
     from torch.utils.data import DataLoader
-    
+
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -211,34 +218,34 @@ def benchmark_inference_speed(
         collate_fn=collate_fn,
         pin_memory=(device.type == "cuda"),
     )
-    
+
     latencies = []
     model.eval()
-    
+
     with torch.no_grad():
         for i, (images, _) in enumerate(loader):
             if i >= num_runs // batch_size:
                 break
-                
+
             # Warmup
             if i == 0:
                 for img in images:
                     _ = model([img.to(device)])
                 continue
-            
+
             # Measure inference time
             start = time.perf_counter()
             for img in images:
                 _ = model([img.to(device)])
             end = time.perf_counter()
-            
+
             # Per-image latency
             batch_latency = (end - start) / len(images) * 1000  # ms
             latencies.extend([batch_latency] * len(images))
-    
+
     if not latencies:
         return {"fps": 0, "avg_ms": 0, "p50_ms": 0, "p95_ms": 0, "p99_ms": 0}
-    
+
     latencies = np.array(latencies)
     return {
         "fps": 1000 / np.mean(latencies) if np.mean(latencies) > 0 else 0,
@@ -255,6 +262,7 @@ def benchmark_inference_speed(
 # ---------------------------------------------------------------------------
 # YOLO evaluation path
 # ---------------------------------------------------------------------------
+
 
 def evaluate_yolo(
     checkpoint_path: str,
@@ -309,7 +317,7 @@ def evaluate_yolo(
         metrics["mAP50_95"] = float(results.box.map)
         metrics["precision"] = float(results.box.mp)
         metrics["recall"] = float(results.box.mr)
-        
+
         if hasattr(results.box, "ap_class_index") and results.box.ap_class_index is not None:
             metrics["per_class"] = {}
             for i, cls_idx in enumerate(results.box.ap_class_index):
@@ -318,19 +326,22 @@ def evaluate_yolo(
                     "mAP50": float(results.box.ap50[i]) if i < len(results.box.ap50) else 0.0,
                     "mAP50_95": float(results.box.ap[i]) if i < len(results.box.ap) else 0.0,
                 }
-    
+
     # 🆕 Speed benchmark for YOLO
     if benchmark:
         console.print("\n[bold yellow]Running inference speed benchmark...[/bold yellow]")
         # Simple benchmark for YOLO
         import time
+
         latencies = []
         for _ in range(50):
             start = time.perf_counter()
-            model.predict(source=np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8), verbose=False)
+            model.predict(
+                source=np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8), verbose=False
+            )
             end = time.perf_counter()
             latencies.append((end - start) * 1000)
-        
+
         if latencies:
             latencies = np.array(latencies)
             metrics["benchmark"] = {
@@ -347,6 +358,7 @@ def evaluate_yolo(
 # ---------------------------------------------------------------------------
 # Torchvision evaluation path
 # ---------------------------------------------------------------------------
+
 
 def load_torchvision_model(
     checkpoint_path: str,
@@ -413,7 +425,7 @@ def evaluate_torchvision(
     all_preds: list[dict[str, torch.Tensor]] = []
     all_targets: list[dict[str, torch.Tensor]] = []
     t0 = time.time()
-    
+
     # 🆕 Collect per-image latencies
     per_image_latencies = []
 
@@ -424,7 +436,7 @@ def evaluate_torchvision(
             pred = model([img.to(device)])[0]
             end = time.perf_counter()
             per_image_latencies.append((end - start) * 1000)  # ms
-            
+
             mask = pred["scores"] >= score_threshold
             pred = {
                 k: v[mask]
@@ -474,14 +486,14 @@ def evaluate_torchvision(
         "fps": n / elapsed if elapsed > 0 else 0,
         "avg_ms": elapsed / n * 1000 if n > 0 else 0,
     }
-    
+
     # 🆕 Small object metrics
     console.print("\n[bold yellow]Computing small object metrics...[/bold yellow]")
     small_metrics = compute_small_object_metrics(
         all_preds, all_targets, iou_threshold, small_object_threshold
     )
     metrics.update(small_metrics)
-    
+
     # 🆕 Inference speed benchmark
     if benchmark and per_image_latencies:
         latencies = np.array(per_image_latencies)
@@ -633,6 +645,7 @@ def _save_json(predictions: list[dict], targets: list[dict], path: Path) -> None
 # Table printing
 # ---------------------------------------------------------------------------
 
+
 def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
     """Print a rich table of evaluation results."""
     console.rule(f"[bold]Evaluation Results — {model_name}[/bold]")
@@ -653,7 +666,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
         if key in metrics:
             label = {"mAP50_95": "mAP@0.5:0.95", "mAP50": "mAP@0.5"}.get(key, key.title())
             summary.add_row(label, fmt(metrics[key]))
-    
+
     # 🆕 Small object metrics
     for key in ("small_objects_precision", "small_objects_recall", "small_objects_f1"):
         if key in metrics:
@@ -663,12 +676,12 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
                 "small_objects_f1": "Small Object F1",
             }.get(key, key)
             summary.add_row(label, fmt(metrics[key]))
-    
+
     for key in ("fps", "avg_ms", "num_images"):
         if key in metrics:
             label = {"fps": "FPS", "avg_ms": "ms/image", "num_images": "Images"}.get(key, key)
             summary.add_row(label, fmt(metrics[key]))
-    
+
     # 🆕 Benchmark percentiles
     if "benchmark" in metrics:
         bench = metrics["benchmark"]
@@ -715,6 +728,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     args = parse_args()
@@ -777,9 +791,7 @@ def main() -> None:
             for cls, mv_dict in metrics["per_class"].items()
         }
     if "benchmark" in metrics:
-        serializable["benchmark"] = {
-            k: float(v) for k, v in metrics["benchmark"].items()
-        }
+        serializable["benchmark"] = {k: float(v) for k, v in metrics["benchmark"].items()}
     with open(metrics_path, "w") as f:
         json.dump(serializable, f, indent=2)
     console.print(f"\n✓ Metrics saved to [bold]{metrics_path}[/bold]")

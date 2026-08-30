@@ -8,92 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  lint:
-    name: Code Quality (Linting & Formatting)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff==0.1.15 black isort pydocstyle mypy bandit[toml]
-          pip install types-PyYAML types-setuptools
-          pip install -e .
-
-      - name: Run Ruff (linting)
-        run: |
-          ruff check visdrone_toolkit/ scripts/ tests/ --exit-non-zero-on-fix
-
-      - name: Run Ruff (formatting check)
-        run: |
-          ruff format --check visdrone_toolkit/ scripts/ tests/
-
-      - name: Run Black (formatting check)
-        run: |
-          black --check --diff visdrone_toolkit/ scripts/ tests/ --line-length=100
-
-      - name: Run isort (import sorting check)
-        run: |
-          isort --check-only --diff visdrone_toolkit/ scripts/ tests/ --profile=black --line-length=100
-
-      - name: Run pydocstyle (docstring check)
-        run: |
-          pydocstyle visdrone_toolkit/ --convention=google --add-ignore=D100,D101,D102,D103,D104,D105,D107,D212
-        continue-on-error: true
-
-      - name: Run mypy (type checking)
-        run: |
-          mypy visdrone_toolkit/ --ignore-missing-imports --check-untyped-defs
-        continue-on-error: true
-
-      - name: Run Bandit (security linting)
-        run: |
-          bandit -r visdrone_toolkit/ -c pyproject.toml
-        continue-on-error: true
-
-  markdown-yaml-lint:
-    name: Markdown & YAML Linting
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "18"
-
-      - name: Install markdownlint-cli
-        run: npm install -g markdownlint-cli
-
-      - name: Run markdownlint
-        run: |
-          markdownlint '**/*.md' --disable MD013 MD033 MD041 --ignore node_modules || true
-        continue-on-error: true
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install yamllint
-        run: pip install yamllint
-
-      - name: Run yamllint
-        run: |
-          yamllint . -d "{extends: default, rules: {line-length: {max: 120}, document-start: disable}}" || true
-        continue-on-error: true
-
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -211,7 +125,7 @@ jobs:
   build:
     name: Build Distribution
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [pre-commit, test]
 
     steps:
       - name: Checkout code
@@ -277,21 +191,6 @@ jobs:
           name: security-reports
           path: bandit-report.json
 
-  shell-check:
-    name: Shell Script Linting
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
-        with:
-          scandir: "./scripts"
-          severity: warning
-        continue-on-error: true
-
   docs:
     name: Documentation Build
     runs-on: ubuntu-latest
@@ -353,62 +252,24 @@ jobs:
             exit 1
           fi
 
-  python-compatibility:
-    name: Python Syntax Check (Pyupgrade)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install pyupgrade
-        run: pip install pyupgrade
-
-      - name: Check Python 3.8+ syntax
-        run: |
-          find visdrone_toolkit/ scripts/ tests/ -name "*.py" -exec pyupgrade --py38-plus {} +
-        continue-on-error: true
-
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs:
-      [
-        lint,
-        markdown-yaml-lint,
-        test,
-        integration-tests,
-        pre-commit,
-        build,
-        security,
-        shell-check,
-        docs,
-        python-compatibility,
-      ]
+    needs: [test, integration-tests, pre-commit, build, security, docs]
     if: always()
 
     steps:
       - name: Check CI status
         run: |
-          echo "Lint: ${{ needs.lint.result }}"
-          echo "Markdown/YAML Lint: ${{ needs.markdown-yaml-lint.result }}"
           echo "Tests: ${{ needs.test.result }}"
           echo "Integration Tests: ${{ needs.integration-tests.result }}"
           echo "Pre-commit: ${{ needs.pre-commit.result }}"
           echo "Build: ${{ needs.build.result }}"
           echo "Security: ${{ needs.security.result }}"
-          echo "Shell Check: ${{ needs.shell-check.result }}"
           echo "Docs: ${{ needs.docs.result }}"
-          echo "Python Compatibility: ${{ needs.python-compatibility.result }}"
 
       - name: Fail if critical jobs failed
         if: |
-          needs.lint.result == 'failure' ||
           needs.test.result == 'failure' ||
           needs.pre-commit.result == 'failure' ||
           needs.build.result == 'failure'

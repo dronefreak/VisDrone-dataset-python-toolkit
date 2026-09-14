@@ -41,10 +41,7 @@ repos:
         files: requirements.*\.txt$
 
   # ---------- PYTHON LINT + FORMAT (Ruff) ----------
-  # Ruff replaces flake8, isort, pyupgrade, and black (via ruff-format) —
-  # [tool.ruff] in pyproject.toml already enables the "I" (isort) and "UP"
-  # (pyupgrade) rule sets, so standalone isort/pyupgrade/black hooks would
-  # just be doing the same work twice.
+  # Ruff replaces flake8, isort, pyupgrade, and black (via ruff-format)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.13
     hooks:

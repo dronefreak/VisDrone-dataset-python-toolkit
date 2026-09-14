@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Dataset Sanity Check CLI.
+"""
+Dataset Sanity Check CLI.
 
 Scans VisDrone annotation directory and reports integrity issues.
 
 Usage:
-    python scripts/check_dataset.py --annotations_dir /path/to/annotations --images_dir /path/to/images
+    python scripts/check_dataset.py --annotations-dir /path/to/annotations --images-dir /path/to/images
 """
 
 import argparse
@@ -14,9 +15,14 @@ from typing import List, Tuple
 
 
 def load_annotation(file_path: str) -> List[List[float]]:
-    """Load VisDrone annotation file.
+    """
+    Load VisDrone annotation file.
 
-    Format: x,y,width,height,confidence,class_id,truncation,occlusion
+    Args:
+        file_path: Path to annotation file
+
+    Returns:
+        List of boxes with [x, y, w, h, class_id]
     """
     boxes = []
     with open(file_path) as f:
@@ -33,9 +39,14 @@ def load_annotation(file_path: str) -> List[List[float]]:
 
 
 def check_empty_files(annotations_dir: str) -> List[str]:
-    """Check for empty annotation files.
+    """
+    Check for empty annotation files.
 
-    Returns list of empty file paths.
+    Args:
+        annotations_dir: Path to annotations directory
+
+    Returns:
+        List of empty file paths
     """
     empty_files = []
     for file_path in Path(annotations_dir).glob("*.txt"):
@@ -47,7 +58,8 @@ def check_empty_files(annotations_dir: str) -> List[str]:
 def check_out_of_bounds_boxes(
     annotations_dir: str,
 ) -> List[Tuple[str, List[Tuple[int, str]]]]:
-    """Check if any boxes are out of image bounds.
+    """
+    Check if any boxes are out of image bounds.
 
     Returns list of (image_file, [(box_index, error_message)])
     """
@@ -79,9 +91,15 @@ def check_class_ids(
     annotations_dir: str,
     valid_classes: frozenset = frozenset({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}),
 ) -> List[Tuple[str, List[int]]]:
-    """Check if class IDs are valid (0-9 for VisDrone).
+    """
+    Check if class IDs are valid (0-9 for VisDrone).
 
-    Returns list of (file_path, [invalid_class_ids])
+    Args:
+        annotations_dir: Path to annotations directory
+        valid_classes: Set of valid class IDs
+
+    Returns:
+        List of (file_path, [invalid_class_ids])
     """
     issues = []
 
@@ -100,9 +118,15 @@ def check_class_ids(
 
 
 def check_missing_annotations(images_dir: str, annotations_dir: str) -> List[str]:
-    """Check for images that have no corresponding annotation file.
+    """
+    Check for images that have no corresponding annotation file.
 
-    Returns list of image paths with missing annotations.
+    Args:
+        images_dir: Path to images directory
+        annotations_dir: Path to annotations directory
+
+    Returns:
+        List of image paths with missing annotations
     """
     missing = []
 
@@ -121,7 +145,8 @@ def check_missing_annotations(images_dir: str, annotations_dir: str) -> List[str
     return missing
 
 
-def main():
+def main() -> int:
+    """Main entry point for dataset sanity check."""
     parser = argparse.ArgumentParser(
         description="Check VisDrone dataset integrity",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -146,11 +171,11 @@ Examples:
 
     # Verify directories exist
     if not os.path.exists(args.annotations_dir):
-        print(f"❌ Error: Annotations directory '{args.annotations_dir}' does not exist")
+        print(f"❌ Error: {args.annotations_dir} does not exist")
         return 1
 
     if not os.path.exists(args.images_dir):
-        print(f"❌ Error: Images directory '{args.images_dir}' does not exist")
+        print(f"❌ Error: {args.images_dir} does not exist")
         return 1
 
     print("🔍 Scanning VisDrone dataset...\n")

@@ -255,7 +255,18 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [test, integration-tests, pre-commit, build, security, docs]
+    needs:
+      [
+        lint,
+        markdown-yaml-lint,
+        test,
+        integration-tests,
+        pre-commit,
+        build,
+        security,
+        shell-check,
+        docs,
+      ]
     if: always()
 
     steps:

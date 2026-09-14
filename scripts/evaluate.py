@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="eval_outputs", help="Output directory")
     parser.add_argument("--save-predictions", action="store_true", help="Save predictions JSON")
 
-    # 🆕 NEW: Small object detection metrics
+    # Small object detection metrics
     parser.add_argument(
         "--small-object-threshold",
         type=float,
@@ -87,7 +87,7 @@ def parse_args() -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
-# 🆕 NEW: Small object detection metrics
+# Small object detection metrics
 # ---------------------------------------------------------------------------
 
 
@@ -133,17 +133,17 @@ def compute_small_object_metrics(
 
         # Get predictions
         pred_boxes = pred.get("boxes", torch.zeros(0, 4)).cpu().numpy()
-        pred_scores = pred.get("scores", torch.zeros(0)).cpu().numpy()
         pred_labels = pred.get("labels", torch.zeros(0, dtype=torch.long)).cpu().numpy()
 
         # Filter predictions by matching class and confidence
         matched_gt = set()
-        for pb, _ps, pl in zip(pred_boxes, pred_scores, pred_labels):
+        for j, pb in enumerate(pred_boxes):
             # Find matching ground truth with same class
+            pl = pred_labels[j]
             matching_gt = [
-                j
-                for j, (gb, gl) in enumerate(zip(small_gt_boxes, small_gt_labels))
-                if gl == pl and j not in matched_gt
+                k
+                for k, (gb, gl) in enumerate(zip(small_gt_boxes, small_gt_labels))
+                if gl == pl and k not in matched_gt
             ]
 
             if not matching_gt:
@@ -178,84 +178,6 @@ def compute_small_object_metrics(
         "small_objects_recall": small_recall,
         "small_objects_f1": small_f1,
         "small_objects_gt_count": total_small_gt,
-    }
-
-
-# ---------------------------------------------------------------------------
-# 🆕 NEW: Inference speed benchmark with percentiles
-# ---------------------------------------------------------------------------
-
-
-def benchmark_inference_speed(
-    model: torch.nn.Module,
-    dataset,
-    batch_size: int,
-    num_workers: int,
-    device: torch.device,
-    num_runs: int = 100,
-) -> dict[str, float]:
-    """
-    Benchmark inference speed with percentile statistics.
-
-    Args:
-        model: PyTorch model
-        dataset: VisDroneDataset
-        batch_size: Batch size for evaluation
-        num_workers: Number of data loader workers
-        device: Device to run on
-        num_runs: Number of runs for benchmark
-
-    Returns:
-        Dictionary with speed metrics (ms/image, p50, p95, p99)
-    """
-    from torch.utils.data import DataLoader
-
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-        pin_memory=(device.type == "cuda"),
-    )
-
-    latencies = []
-    model.eval()
-
-    with torch.no_grad():
-        for i, (images, _) in enumerate(loader):
-            if i >= num_runs // batch_size:
-                break
-
-            # Warmup
-            if i == 0:
-                for img in images:
-                    _ = model([img.to(device)])
-                continue
-
-            # Measure inference time
-            start = time.perf_counter()
-            for img in images:
-                _ = model([img.to(device)])
-            end = time.perf_counter()
-
-            # Per-image latency
-            batch_latency = (end - start) / len(images) * 1000  # ms
-            latencies.extend([batch_latency] * len(images))
-
-    if not latencies:
-        return {"fps": 0, "avg_ms": 0, "p50_ms": 0, "p95_ms": 0, "p99_ms": 0}
-
-    latencies = np.array(latencies)
-    return {
-        "fps": 1000 / np.mean(latencies) if np.mean(latencies) > 0 else 0,
-        "avg_ms": np.mean(latencies),
-        "p50_ms": np.percentile(latencies, 50),
-        "p95_ms": np.percentile(latencies, 95),
-        "p99_ms": np.percentile(latencies, 99),
-        "std_ms": np.std(latencies),
-        "min_ms": np.min(latencies),
-        "max_ms": np.max(latencies),
     }
 
 
@@ -327,10 +249,8 @@ def evaluate_yolo(
                     "mAP50_95": float(results.box.ap[i]) if i < len(results.box.ap) else 0.0,
                 }
 
-    # 🆕 Speed benchmark for YOLO
     if benchmark:
         console.print("\n[bold yellow]Running inference speed benchmark...[/bold yellow]")
-        # Simple benchmark for YOLO
         import time
 
         latencies = []
@@ -426,7 +346,7 @@ def evaluate_torchvision(
     all_targets: list[dict[str, torch.Tensor]] = []
     t0 = time.time()
 
-    # 🆕 Collect per-image latencies
+    # Collect per-image latencies
     per_image_latencies = []
 
     for images, targets in loader:
@@ -487,14 +407,14 @@ def evaluate_torchvision(
         "avg_ms": elapsed / n * 1000 if n > 0 else 0,
     }
 
-    # 🆕 Small object metrics
+    # Small object metrics
     console.print("\n[bold yellow]Computing small object metrics...[/bold yellow]")
     small_metrics = compute_small_object_metrics(
         all_preds, all_targets, iou_threshold, small_object_threshold
     )
     metrics.update(small_metrics)
 
-    # 🆕 Inference speed benchmark
+    # Inference speed benchmark
     if benchmark and per_image_latencies:
         latencies = np.array(per_image_latencies)
         metrics["benchmark"] = {
@@ -667,7 +587,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
             label = {"mAP50_95": "mAP@0.5:0.95", "mAP50": "mAP@0.5"}.get(key, key.title())
             summary.add_row(label, fmt(metrics[key]))
 
-    # 🆕 Small object metrics
+    # Small object metrics
     for key in ("small_objects_precision", "small_objects_recall", "small_objects_f1"):
         if key in metrics:
             label = {
@@ -682,7 +602,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
             label = {"fps": "FPS", "avg_ms": "ms/image", "num_images": "Images"}.get(key, key)
             summary.add_row(label, fmt(metrics[key]))
 
-    # 🆕 Benchmark percentiles
+    # Benchmark percentiles
     if "benchmark" in metrics:
         bench = metrics["benchmark"]
         summary.add_section()
@@ -772,7 +692,7 @@ def main() -> None:
             use_soft_nms=args.soft_nms,
             output_dir=output_dir,
             save_predictions=args.save_predictions,
-            small_object_threshold=args.small_object_threshold,
+            small_object_threshold=int(args.small_object_threshold),
             benchmark=args.benchmark,
         )
 

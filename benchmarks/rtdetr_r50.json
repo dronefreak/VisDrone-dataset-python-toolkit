@@ -1,0 +1,28 @@
+{
+  "model_name": "rtdetr_r50",
+  "model_type": "rtdetr",
+  "parameters": "42.0M",
+  "flops": "12.5G",
+  "inference": {
+    "batch_size": 1,
+    "device": "cuda",
+    "avg_ms": 35.2,
+    "p50_ms": 34.8,
+    "p95_ms": 37.5,
+    "p99_ms": 40.1,
+    "fps": 28.4
+  },
+  "evaluation": {
+    "mAP50": 0.712,
+    "mAP50_95": 0.458,
+    "precision": 0.752,
+    "recall": 0.668
+  },
+  "training": {
+    "epochs": 150,
+    "batch_size": 8,
+    "optimizer": "AdamW",
+    "lr": 0.0001
+  },
+  "notes": "Trained on VisDrone 2019 train set"
+}

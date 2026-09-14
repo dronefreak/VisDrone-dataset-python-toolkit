@@ -1,0 +1,28 @@
+{
+  "model_name": "fasterrcnn_resnet50",
+  "model_type": "torchvision",
+  "parameters": "41.7M",
+  "flops": "8.5G",
+  "inference": {
+    "batch_size": 1,
+    "device": "cuda",
+    "avg_ms": 42.3,
+    "p50_ms": 41.8,
+    "p95_ms": 44.1,
+    "p99_ms": 47.2,
+    "fps": 23.6
+  },
+  "evaluation": {
+    "mAP50": 0.682,
+    "mAP50_95": 0.415,
+    "precision": 0.723,
+    "recall": 0.641
+  },
+  "training": {
+    "epochs": 100,
+    "batch_size": 2,
+    "optimizer": "SGD",
+    "lr": 0.005
+  },
+  "notes": "Trained on VisDrone 2019 train set"
+}

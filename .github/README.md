@@ -1,8 +1,6 @@
 # VisDrone Toolkit
 
-[![Python 3.8+](https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white)](https://www.python.org/) [![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/) [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE) [![CI](https://github.com/dronefreak/VisDrone-dataset-python-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/dronefreak/VisDrone-dataset-python-toolkit/actions/workflows/ci.yml) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![🤗 Models](https://img.shields.io/badge/%F0%9F%A4%97%20Models-VisDrone%20Zoo-yellow)](https://huggingface.co/collections/dronefreak/visdrone-detection-model-zoo) [![🤗 Space](https://img.shields.io/badge/%F0%9F%A4%97%20Space-Live%20Demo-blue)](https://huggingface.co/spaces/dronefreak/visdrone-aerial-detection)
 
 PyTorch toolkit for the [VisDrone aerial detection dataset](https://github.com/VisDrone/VisDrone-Dataset). Supports 33 models (4 torchvision + 29 YOLO), end-to-end training, evaluation, and inference.
 

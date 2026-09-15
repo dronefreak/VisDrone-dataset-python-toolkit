@@ -51,23 +51,28 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
+    # Model
     parser.add_argument("--checkpoint", required=True, help="Path to model checkpoint / .pt file")
     parser.add_argument("--model", default="fasterrcnn_resnet50", help="Model name")
     parser.add_argument("--num-classes", type=int, default=12, help="Number of classes")
 
+    # Dataset
     parser.add_argument("--image-dir", required=True, help="Images directory")
     parser.add_argument("--annotation-dir", required=True, help="Annotations directory")
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size")
     parser.add_argument("--num-workers", type=int, default=4, help="DataLoader workers")
 
+    # Evaluation options
     parser.add_argument("--score-threshold", type=float, default=0.05, help="Score threshold")
     parser.add_argument("--iou-threshold", type=float, default=0.5, help="IoU threshold")
     parser.add_argument("--soft-nms", action="store_true", help="Use Soft-NMS (torchvision only)")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 
+    # Output
     parser.add_argument("--output-dir", default="eval_outputs", help="Output directory")
     parser.add_argument("--save-predictions", action="store_true", help="Save predictions JSON")
 
+    # Small object detection metrics
     parser.add_argument(
         "--small-object-threshold",
         type=float,
@@ -79,6 +84,11 @@ def parse_args() -> argparse.Namespace:
     )
 
     return parser.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Small object detection metrics
+# ---------------------------------------------------------------------------
 
 
 def compute_small_object_metrics(
@@ -107,9 +117,11 @@ def compute_small_object_metrics(
     total_small_gt = 0
 
     for pred, tgt in zip(predictions, targets):
+        # Get ground truth boxes and filter for small objects
         gt_boxes = tgt["boxes"].cpu().numpy()
         gt_labels = tgt["labels"].cpu().numpy()
 
+        # Calculate areas
         gt_areas = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
         small_gt_mask = gt_areas < (small_area_threshold * small_area_threshold)
         small_gt_boxes = gt_boxes[small_gt_mask]
@@ -119,11 +131,14 @@ def compute_small_object_metrics(
         if len(small_gt_boxes) == 0:
             continue
 
+        # Get predictions
         pred_boxes = pred.get("boxes", torch.zeros(0, 4)).cpu().numpy()
         pred_labels = pred.get("labels", torch.zeros(0, dtype=torch.long)).cpu().numpy()
 
+        # Filter predictions by matching class and confidence
         matched_gt = set()
         for j, pb in enumerate(pred_boxes):
+            # Find matching ground truth with same class
             pl = pred_labels[j]
             matching_gt = [
                 k
@@ -135,6 +150,7 @@ def compute_small_object_metrics(
                 small_fp += 1
                 continue
 
+            # Compute IoU with matching ground truths
             pb_tensor = torch.tensor(pb).unsqueeze(0)
             gt_tensor = torch.tensor(small_gt_boxes[matching_gt])
             ious = box_iou(pb_tensor, gt_tensor)
@@ -148,6 +164,7 @@ def compute_small_object_metrics(
 
         small_fn += len(small_gt_boxes) - len(matched_gt)
 
+    # Compute metrics
     small_precision = small_tp / (small_tp + small_fp) if (small_tp + small_fp) > 0 else 0.0
     small_recall = small_tp / (small_tp + small_fn) if (small_tp + small_fn) > 0 else 0.0
     small_f1 = (
@@ -162,6 +179,11 @@ def compute_small_object_metrics(
         "small_objects_f1": small_f1,
         "small_objects_gt_count": total_small_gt,
     }
+
+
+# ---------------------------------------------------------------------------
+# YOLO evaluation path
+# ---------------------------------------------------------------------------
 
 
 def evaluate_yolo(
@@ -253,6 +275,11 @@ def evaluate_yolo(
     return metrics
 
 
+# ---------------------------------------------------------------------------
+# Torchvision evaluation path
+# ---------------------------------------------------------------------------
+
+
 def load_torchvision_model(
     checkpoint_path: str,
     model_name: str,
@@ -318,14 +345,17 @@ def evaluate_torchvision(
     all_preds: list[dict[str, torch.Tensor]] = []
     all_targets: list[dict[str, torch.Tensor]] = []
     t0 = time.time()
+
+    # Collect per-image latencies
     per_image_latencies = []
 
     for images, targets in loader:
         for img, tgt in zip(images, targets):
+            # Measure per-image inference time
             start = time.perf_counter()
             pred = model([img.to(device)])[0]
             end = time.perf_counter()
-            per_image_latencies.append((end - start) * 1000)
+            per_image_latencies.append((end - start) * 1000)  # ms
 
             mask = pred["scores"] >= score_threshold
             pred = {
@@ -351,9 +381,13 @@ def evaluate_torchvision(
     elapsed = time.time() - t0
     n = len(all_preds)
 
+    # Overall metrics
     overall = compute_metrics(all_preds, all_targets, iou_threshold)
+
+    # Per-class metrics
     per_class = _per_class_metrics(all_preds, all_targets, iou_threshold)
 
+    # mAP via pycocotools
     map50: float | None = None
     map50_95: float | None = None
     import contextlib
@@ -373,12 +407,14 @@ def evaluate_torchvision(
         "avg_ms": elapsed / n * 1000 if n > 0 else 0,
     }
 
+    # Small object metrics
     console.print("\n[bold yellow]Computing small object metrics...[/bold yellow]")
     small_metrics = compute_small_object_metrics(
         all_preds, all_targets, iou_threshold, small_object_threshold
     )
     metrics.update(small_metrics)
 
+    # Inference speed benchmark
     if benchmark and per_image_latencies:
         latencies = np.array(per_image_latencies)
         metrics["benchmark"] = {
@@ -525,10 +561,16 @@ def _save_json(predictions: list[dict], targets: list[dict], path: Path) -> None
     console.print(f"  ✓ Predictions saved to {path}")
 
 
+# ---------------------------------------------------------------------------
+# Table printing
+# ---------------------------------------------------------------------------
+
+
 def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
     """Print a rich table of evaluation results."""
     console.rule(f"[bold]Evaluation Results — {model_name}[/bold]")
 
+    # Summary table
     summary = Table(title="Summary", show_header=True, header_style="bold magenta")
     summary.add_column("Metric", style="cyan")
     summary.add_column("Value", justify="right")
@@ -545,6 +587,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
             label = {"mAP50_95": "mAP@0.5:0.95", "mAP50": "mAP@0.5"}.get(key, key.title())
             summary.add_row(label, fmt(metrics[key]))
 
+    # Small object metrics
     for key in ("small_objects_precision", "small_objects_recall", "small_objects_f1"):
         if key in metrics:
             label = {
@@ -559,6 +602,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
             label = {"fps": "FPS", "avg_ms": "ms/image", "num_images": "Images"}.get(key, key)
             summary.add_row(label, fmt(metrics[key]))
 
+    # Benchmark percentiles
     if "benchmark" in metrics:
         bench = metrics["benchmark"]
         summary.add_section()
@@ -569,6 +613,7 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
 
     console.print(summary)
 
+    # Per-class table
     per_class = metrics.get("per_class", {})
     if per_class:
         cls_table = Table(title="Per-Class Metrics", show_header=True, header_style="bold cyan")
@@ -598,6 +643,11 @@ def print_metrics_table(model_name: str, metrics: dict[str, Any]) -> None:
                 )
 
         console.print(cls_table)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -648,6 +698,7 @@ def main() -> None:
 
     print_metrics_table(args.model, metrics)
 
+    # Save JSON summary
     metrics_path = output_dir / "metrics.json"
     serializable: dict[str, Any] = {
         k: (float(v) if isinstance(v, (float, np.floating)) else v)

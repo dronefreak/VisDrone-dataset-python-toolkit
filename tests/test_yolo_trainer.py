@@ -120,9 +120,9 @@ class TestPrepareDatasetYaml:
 
     def test_nc_equals_names_length_default(self):
         data = self._run(num_classes=11)
-        assert data["nc"] == len(
-            data["names"]
-        ), f"nc={data['nc']} but names has {len(data['names'])} entries"
+        assert data["nc"] == len(data["names"]), (
+            f"nc={data['nc']} but names has {len(data['names'])} entries"
+        )
 
     def test_nc_equals_names_length_when_12_passed(self):
         """Regression: passing num_classes=12 must not cause nc/names mismatch."""
@@ -261,9 +261,9 @@ class TestPrepareDatasetDirStructure:
             img_path = str(work / "images" / "train" / "img001.jpg")
             label_path = img_path.replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
             expected_labels_dir = str(work / "labels" / "train")
-            assert label_path.startswith(
-                expected_labels_dir
-            ), f"Label path {label_path} should be under {expected_labels_dir}"
+            assert label_path.startswith(expected_labels_dir), (
+                f"Label path {label_path} should be under {expected_labels_dir}"
+            )
 
     def test_labels_val_created_when_val_provided(self):
         with tempfile.TemporaryDirectory() as tmp_str:

@@ -32,7 +32,7 @@ class YOLOv8Base(DetectionModel):
     def __init__(
         self,
         num_classes: int = 12,
-        _pretrained: bool = True,
+        pretrained: bool = True,
         device: str = "cuda",
         imgsz: int = 640,
         **_kwargs: Any,
@@ -42,7 +42,7 @@ class YOLOv8Base(DetectionModel):
 
         Args:
             num_classes: Number of detection classes (default: 12 for VisDrone)
-            _pretrained: Load pretrained COCO weights (default: True, unused)
+            pretrained: Load pretrained COCO weights (default: True, unused)
             device: Device to load model on (default: 'cuda')
             imgsz: Input image size (default: 640)
             **_kwargs: Additional arguments for Ultralytics YOLO (unused)
@@ -58,13 +58,12 @@ class YOLOv8Base(DetectionModel):
 
         # Load model
         self.model = YOLO(self.ULTRALYTICS_MODEL)
+        self.pretrained = pretrained
         self.device_name = device
         self.imgsz = imgsz
         self.format_converter = YOLOFormatConverter()
 
         # Set number of classes
-        if hasattr(self.model.model, "nc"):
-            self.model.model.nc = num_classes
         if hasattr(self.model, "model") and hasattr(self.model.model, "nc"):
             self.model.model.nc = num_classes
 
@@ -158,7 +157,7 @@ class YOLOv8Base(DetectionModel):
 
     def freeze_backbone(self, num_layers: Optional[int] = None) -> None:
         """Freeze backbone layers for fine-tuning."""
-        if hasattr(self.model, "model"):
+        if self.model is not None and hasattr(self.model, "model"):
             backbone = self.model.model
             if hasattr(backbone, "model"):
                 # Freeze backbone

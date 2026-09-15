@@ -138,7 +138,7 @@ def compute_small_object_metrics(
 
         # Filter predictions by matching class and confidence
         matched_gt = set()
-        for i, (pb, ps, pl) in enumerate(zip(pred_boxes, pred_scores, pred_labels)):
+        for pb, _, pl in zip(pred_boxes, pred_scores, pred_labels):
             # Find matching ground truth with same class
             matching_gt = [
                 j

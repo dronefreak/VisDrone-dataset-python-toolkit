@@ -25,9 +25,9 @@ def load_annotation(file_path: str) -> List[List[float]]:
         List of boxes with [x, y, w, h, class_id]
     """
     boxes = []
-    with open(file_path, 'r') as f:
+    with open(file_path) as f:
         for line in f:
-            parts = line.strip().split(',')
+            parts = line.strip().split(",")
             if len(parts) >= 6:
                 try:
                     x, y, w, h = map(float, parts[:4])
@@ -55,18 +55,48 @@ def check_empty_files(annotations_dir: str) -> List[str]:
     return empty_files
 
 
-def check_class_ids(annotations_dir: str) -> List[Tuple[str, List[int]]]:
+def check_out_of_bounds_boxes(
+    annotations_dir: str,
+) -> List[Tuple[str, List[Tuple[int, str]]]]:
     """
-    Check if class IDs are valid (0-9 for VisDrone).
+    Check if any boxes are out of image bounds.
 
     Args:
         annotations_dir: Path to annotations directory
 
     Returns:
+        List of (image_file, [(box_index, error_message)])
+    """
+    issues = []
+    for ann_file in Path(annotations_dir).glob("*.txt"):
+        file_issues = []
+        for idx, (x, y, w, h, _class_id) in enumerate(load_annotation(str(ann_file))):
+            if x < 0 or x > 1 or y < 0 or y > 1:
+                file_issues.append((idx, f"Box {idx}: x={x}, y={y} out of bounds"))
+            if w <= 0 or h <= 0:
+                file_issues.append((idx, f"Box {idx}: width={w}, height={h} invalid"))
+            if x + w > 1 or y + h > 1:
+                file_issues.append((idx, f"Box {idx}: x+w={x + w}, y+h={y + h} out of bounds"))
+        if file_issues:
+            issues.append((str(ann_file), file_issues))
+    return issues
+
+
+def check_class_ids(
+    annotations_dir: str,
+    valid_classes: frozenset = frozenset({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}),
+) -> List[Tuple[str, List[int]]]:
+    """
+    Check if class IDs are valid (0-9 for VisDrone).
+
+    Args:
+        annotations_dir: Path to annotations directory
+        valid_classes: Set of valid class IDs
+
+    Returns:
         List of (file_path, [invalid_class_ids])
     """
     issues: List[Tuple[str, List[int]]] = []
-    valid_classes: Set[int] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
     for ann_file in Path(annotations_dir).glob("*.txt"):
         boxes = load_annotation(str(ann_file))
@@ -95,7 +125,7 @@ def check_missing_annotations(images_dir: str, annotations_dir: str) -> List[str
         List of image paths with missing annotations
     """
     image_files: List[Path] = []
-    image_extensions = {'.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'}
+    image_extensions = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
 
     for ext in image_extensions:
         image_files.extend(Path(images_dir).glob(f"*{ext}"))
@@ -120,15 +150,9 @@ Examples:
         """,
     )
     parser.add_argument(
-        "-a", "--annotations-dir",
-        required=True,
-        help="Path to annotation directory"
+        "-a", "--annotations-dir", required=True, help="Path to annotation directory"
     )
-    parser.add_argument(
-        "-i", "--images-dir",
-        required=True,
-        help="Path to images directory"
-    )
+    parser.add_argument("-i", "--images-dir", required=True, help="Path to images directory")
 
     args = parser.parse_args()
 
@@ -150,6 +174,14 @@ Examples:
     else:
         print("✅ No empty annotation files")
 
+    out_of_bounds = check_out_of_bounds_boxes(args.annotations_dir)
+    if out_of_bounds:
+        print(f"\n⚠️ Found {len(out_of_bounds)} files with invalid boxes:")
+        for file_path, issues in out_of_bounds[:5]:
+            print(f"   - {file_path}: {len(issues)} issue(s)")
+    else:
+        print("✅ All annotation boxes are valid")
+
     class_issues = check_class_ids(args.annotations_dir)
     if class_issues:
         print(f"\n⚠️ Found {len(class_issues)} files with invalid class IDs:")
@@ -166,7 +198,7 @@ Examples:
     else:
         print("✅ All images have annotations")
 
-    total_issues = len(empty_files) + len(class_issues) + len(missing)
+    total_issues = len(empty_files) + len(out_of_bounds) + len(class_issues) + len(missing)
     print(f"\n{'='*40}")
     if total_issues == 0:
         print("🎉 Dataset is clean! No issues found.")

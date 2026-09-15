@@ -124,13 +124,12 @@ def check_missing_annotations(images_dir: str, annotations_dir: str) -> List[str
     Returns:
         List of image paths with missing annotations
     """
-    image_files: List[Path] = []
+    missing = []
     image_extensions = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
-
+    image_files: List[Path] = []
     for ext in image_extensions:
         image_files.extend(Path(images_dir).glob(f"*{ext}"))
 
-    missing = []
     for img_path in image_files:
         ann_path = Path(annotations_dir) / f"{img_path.stem}.txt"
         if not ann_path.exists():
